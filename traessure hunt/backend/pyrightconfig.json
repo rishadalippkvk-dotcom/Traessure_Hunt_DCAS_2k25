@@ -1,0 +1,17 @@
+{
+  "typeCheckingMode": "off",
+  "reportArgumentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportIncompatibleVariableOverride": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportPrivateImportUsage": "none",
+  "reportOperatorIssue": "none",
+  "reportFunctionMemberAccess": "none",
+  "exclude": [
+    "**/migrations/**",
+    "**/__pycache__/**",
+    "**/node_modules/**"
+  ]
+}

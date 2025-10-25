@@ -1,0 +1,17 @@
+# Django Backend Requirements for FOSS Treasure Hunt
+# Python 3.13.7 compatible
+
+# Django Framework
+Django==5.0.1
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+
+# Database
+# SQLite is included with Python
+
+# Authentication
+djangorestframework-simplejwt==5.3.1
+
+# Utilities
+python-dotenv==1.0.0
+toml==0.10.2

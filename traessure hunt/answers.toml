@@ -1,0 +1,28 @@
+# FOSS Treasure Hunt Answers
+# This file contains only the answers to secure them separately from the main code
+
+[questions]
+
+# Level 1
+level_1_answer = "kernel"
+level_1_security_key = "pwd"
+
+# Level 2
+level_2_answer = "shell"
+level_2_security_key = "gpl"
+
+# Level 3
+level_3_answer = "unix"
+level_3_security_key = "linux"
+
+# Level 4
+level_4_answer = "package manager"
+level_4_security_key = "cd"
+
+# Level 5
+level_5_answer = "chmod"
+level_5_security_key = "linux"
+
+# Level 6
+level_6_answer = "linus torvalds"
+level_6_security_key = "git"

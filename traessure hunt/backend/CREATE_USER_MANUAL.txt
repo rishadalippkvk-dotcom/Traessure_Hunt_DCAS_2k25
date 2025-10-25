@@ -1,0 +1,441 @@
+================================================================================
+FOSS TREASURE HUNT - USER CREATION MANUAL
+================================================================================
+
+This manual explains how to create users in the Django database for the 
+FOSS Treasure Hunt application.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. Create Superuser (Admin Account)
+2. Create Regular User via Django Admin Panel
+3. Create User via Django Shell
+4. Create User via API (Registration Endpoint)
+5. Troubleshooting
+
+================================================================================
+METHOD 1: CREATE SUPERUSER (ADMIN ACCOUNT)
+================================================================================
+
+A superuser has full access to the Django admin panel and can manage all data.
+
+STEPS:
+------
+1. Open Command Prompt or PowerShell
+
+2. Navigate to backend directory:
+   cd "c:\Users\DELL\Desktop\traessure hunt\backend"
+
+3. Run the createsuperuser command:
+   python manage.py createsuperuser
+
+4. Follow the prompts:
+   Username: [Enter desired username, e.g., "admin"]
+   Email address (optional): [Press Enter to skip or enter email]
+   Password: [Enter password - won't show on screen]
+   Password (again): [Re-enter password]
+
+5. Success message will appear:
+   "Superuser created successfully."
+
+EXAMPLE:
+--------
+PS C:\Users\DELL\Desktop\traessure hunt\backend> python manage.py createsuperuser
+Username: admin
+Email address: admin@example.com
+Password: 
+Password (again): 
+Superuser created successfully.
+
+NOTES:
+------
+- Password must be at least 8 characters
+- Password won't be visible when typing
+- Email is optional
+- This user can access http://localhost:8000/admin/
+
+
+================================================================================
+METHOD 2: CREATE REGULAR USER VIA DJANGO ADMIN PANEL
+================================================================================
+
+After creating a superuser, you can create regular users through the web interface.
+
+STEPS:
+------
+1. Start Django server:
+   cd "c:\Users\DELL\Desktop\traessure hunt\backend"
+   python manage.py runserver
+
+2. Open browser and go to:
+   http://localhost:8000/admin/
+
+3. Login with superuser credentials
+
+4. Click on "Users" under AUTHENTICATION section
+
+5. Click "ADD USER" button (top right)
+
+6. Fill in the form:
+   - Username: [Required] e.g., "player1"
+   - Password: [Required]
+   - Password confirmation: [Same as password]
+
+7. Click "SAVE"
+
+8. On next page, you can add more details:
+   - First name
+   - Last name
+   - Email address
+   - Total score (default: 0)
+   - Games played (default: 0)
+   - Best streak (default: 0)
+   - Rank (default: "🔰 BEGINNER CODER")
+
+9. Click "SAVE" again
+
+NOTES:
+------
+- Users created this way can login via API
+- You can set permissions and groups
+- You can edit user details anytime
+
+
+================================================================================
+METHOD 3: CREATE USER VIA DJANGO SHELL
+================================================================================
+
+For quick user creation or bulk operations, use Django shell.
+
+STEPS:
+------
+1. Open Command Prompt and navigate to backend:
+   cd "c:\Users\DELL\Desktop\traessure hunt\backend"
+
+2. Open Django shell:
+   python manage.py shell
+
+3. Import the User model:
+   from authentication.models import User
+
+4. Create a regular user:
+   user = User.objects.create_user(
+       username='player1',
+       email='player1@example.com',
+       password='foss2024'
+   )
+
+5. Verify creation:
+   print(f"User created: {user.username}")
+
+6. Exit shell:
+   exit()
+
+FULL EXAMPLE:
+-------------
+PS C:\Users\DELL\Desktop\traessure hunt\backend> python manage.py shell
+
+>>> from authentication.models import User
+
+>>> # Create a regular user
+>>> user = User.objects.create_user(
+...     username='player1',
+...     email='player1@example.com',
+...     password='foss2024'
+... )
+
+>>> print(f"User created: {user.username}")
+User created: player1
+
+>>> # Create another user with custom fields
+>>> user2 = User.objects.create_user(
+...     username='player2',
+...     password='secure123'
+... )
+>>> user2.total_score = 50
+>>> user2.games_played = 2
+>>> user2.best_streak = 3
+>>> user2.save()
+
+>>> # List all users
+>>> User.objects.all()
+<QuerySet [<User: admin>, <User: player1>, <User: player2>]>
+
+>>> # Exit
+>>> exit()
+
+ADVANCED EXAMPLES:
+------------------
+
+# Create user with all custom fields
+user = User.objects.create_user(
+    username='pro_player',
+    email='pro@example.com',
+    password='mypassword',
+    first_name='John',
+    last_name='Doe'
+)
+user.total_score = 100
+user.games_played = 10
+user.best_streak = 6
+user.rank = "⭐ LEGENDARY HACKER"
+user.save()
+
+# Create multiple users
+usernames = ['alice', 'bob', 'charlie']
+for name in usernames:
+    User.objects.create_user(
+        username=name,
+        password='foss2024'
+    )
+
+# Check if user exists
+if User.objects.filter(username='player1').exists():
+    print("User already exists!")
+
+
+================================================================================
+METHOD 4: CREATE USER VIA API (REGISTRATION ENDPOINT)
+================================================================================
+
+Users can self-register using the REST API endpoint.
+
+USING POWERSHELL:
+-----------------
+1. Ensure Django server is running:
+   python manage.py runserver
+
+2. Open PowerShell
+
+3. Run this command:
+
+$body = @{
+    username = "newplayer"
+    email = "newplayer@example.com"
+    password = "foss2024"
+    password_confirm = "foss2024"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/auth/register/" -Body $body -ContentType "application/json"
+
+
+USING CURL:
+-----------
+curl -X POST http://localhost:8000/api/auth/register/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "newplayer",
+    "email": "newplayer@example.com",
+    "password": "foss2024",
+    "password_confirm": "foss2024"
+  }'
+
+
+RESPONSE:
+---------
+If successful, you'll get:
+{
+  "success": true,
+  "message": "Registration successful",
+  "user": {
+    "id": 3,
+    "username": "newplayer",
+    "email": "newplayer@example.com",
+    "total_score": 0,
+    "games_played": 0,
+    "best_streak": 0,
+    "rank": "🔰 BEGINNER CODER"
+  },
+  "token": "abc123xyz..."
+}
+
+NOTES:
+------
+- Password must match password_confirm
+- Email is optional
+- Automatically creates auth token
+- User can immediately login
+
+
+================================================================================
+METHOD 5: VIEW AND MANAGE EXISTING USERS
+================================================================================
+
+CHECK ALL USERS (Django Shell):
+-------------------------------
+python manage.py shell
+
+>>> from authentication.models import User
+>>> User.objects.all()
+>>> User.objects.count()  # Total number of users
+
+
+VIEW USER DETAILS:
+------------------
+>>> user = User.objects.get(username='player1')
+>>> print(f"Username: {user.username}")
+>>> print(f"Email: {user.email}")
+>>> print(f"Score: {user.total_score}")
+>>> print(f"Games: {user.games_played}")
+>>> print(f"Streak: {user.best_streak}")
+
+
+UPDATE USER:
+------------
+>>> user = User.objects.get(username='player1')
+>>> user.total_score = 150
+>>> user.best_streak = 5
+>>> user.rank = "🚀 SENIOR ENGINEER"
+>>> user.save()
+
+
+DELETE USER:
+------------
+>>> user = User.objects.get(username='player1')
+>>> user.delete()
+
+Or delete all users (CAREFUL!):
+>>> User.objects.all().delete()
+
+
+CHANGE PASSWORD:
+----------------
+>>> user = User.objects.get(username='player1')
+>>> user.set_password('newpassword123')
+>>> user.save()
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ERROR: "No such table: users"
+SOLUTION: Run migrations first
+  python manage.py migrate
+
+
+ERROR: "User with this username already exists"
+SOLUTION: Choose a different username or delete existing user
+
+
+ERROR: "This password is too common"
+SOLUTION: Use a stronger password with letters, numbers, and symbols
+
+
+ERROR: "Cannot connect to database"
+SOLUTION: 
+  1. Check if treasure_hunt.db exists in backend folder
+  2. Run: python manage.py migrate
+
+
+ERROR: "django.core.exceptions.ImproperlyConfigured"
+SOLUTION: Make sure you're in the backend directory:
+  cd "c:\Users\DELL\Desktop\traessure hunt\backend"
+
+
+ERROR: "ModuleNotFoundError: No module named 'django'"
+SOLUTION: Install dependencies:
+  pip install -r requirements.txt
+
+
+================================================================================
+QUICK REFERENCE COMMANDS
+================================================================================
+
+Navigate to backend:
+  cd "c:\Users\DELL\Desktop\traessure hunt\backend"
+
+Create superuser:
+  python manage.py createsuperuser
+
+Start server:
+  python manage.py runserver
+
+Open Django shell:
+  python manage.py shell
+
+Create user in shell:
+  from authentication.models import User
+  User.objects.create_user(username='NAME', password='PASS')
+
+List all users:
+  User.objects.all()
+
+Count users:
+  User.objects.count()
+
+Access admin panel:
+  http://localhost:8000/admin/
+
+
+================================================================================
+DEFAULT CREDENTIALS FOR TESTING
+================================================================================
+
+You can create test users with these credentials:
+
+Username: testuser1
+Password: foss2024
+
+Username: testuser2
+Password: foss2024
+
+Username: admin
+Password: admin123
+
+Command to create them all:
+---------------------------
+python manage.py shell
+
+from authentication.models import User
+User.objects.create_user('testuser1', password='foss2024')
+User.objects.create_user('testuser2', password='foss2024')
+User.objects.create_superuser('admin', email='admin@example.com', password='admin123')
+
+
+================================================================================
+DATABASE LOCATION
+================================================================================
+
+Database file: c:\Users\DELL\Desktop\traessure hunt\backend\treasure_hunt.db
+
+This is an SQLite database file. You can:
+- View it with DB Browser for SQLite
+- Backup by copying the file
+- Reset by deleting it and running migrations again
+
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+After creating users:
+
+1. Test login via API:
+   POST http://localhost:8000/api/auth/login/
+   Body: {"username": "player1", "password": "foss2024"}
+
+2. Start a game session:
+   POST http://localhost:8000/api/auth/game/start/
+   Header: Authorization: Token YOUR_TOKEN_HERE
+
+3. Or use Streamlit app:
+   streamlit run final2.py
+   Login with created credentials
+
+
+================================================================================
+SUPPORT
+================================================================================
+
+For more information:
+- See: SETUP_INSTRUCTIONS.md
+- See: DATABASE_STATUS.md
+- See: backend/README.md
+
+Django Documentation: https://docs.djangoproject.com/
+
+================================================================================
+END OF MANUAL
+================================================================================
