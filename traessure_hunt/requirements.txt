@@ -1,17 +1,16 @@
-# Unified Requirements for FOSS Treasure Hunt
-# This file combines dependencies for both Django backend and Streamlit frontend
-# for deployment on Streamlit Cloud
+# Requirements for FOSS Treasure Hunt
+# Compatible with Streamlit Cloud deployment
 
-# Django Backend Requirements
+# Core requirements
+streamlit==1.29.0
+pandas==2.1.4
+plotly==5.18.0
+requests==2.31.0
+
+# Backend requirements
 Django==5.0.1
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
 djangorestframework-simplejwt==5.3.1
 python-dotenv==1.0.0
 toml==0.10.2
-
-# Streamlit Frontend Requirements
-streamlit==1.29.0
-pandas==2.1.4
-plotly==5.18.0
-requests==2.31.0
