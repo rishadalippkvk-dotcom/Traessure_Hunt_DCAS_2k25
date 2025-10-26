@@ -7,7 +7,9 @@
       "created_at": "2025-10-24T15:32:47.807062",
       "last_login": "2025-10-24T15:32:48.062411",
       "total_games": 1,
-      "high_score": 85
+      "high_score": 85,
+      "is_active": false,
+      "disabled_at": "2025-10-26T07:42:40.381744"
     },
     {
       "username": "bob",
@@ -23,7 +25,7 @@
       "password": "04ed5c880d330a9f52d5536e0e066c6fbf70db67bbf47be18813ee024ee8a199",
       "email": "",
       "created_at": "2025-10-24T15:41:11.162767",
-      "last_login": "2025-10-25T16:04:33.539777",
+      "last_login": "2025-10-25T22:16:07.533640",
       "total_games": 0,
       "high_score": 0
     },
@@ -64,7 +66,7 @@
       "last_login": null,
       "total_games": 0,
       "high_score": 0,
-      "is_active": true,
+      "is_active": false,
       "saved_progress": {
         "level": 5,
         "score": 147,
@@ -78,7 +80,8 @@
         "perfect_levels": 5,
         "wrong_attempts": 0,
         "saved_at": "2025-10-25T14:23:07.127013"
-      }
+      },
+      "disabled_at": "2025-10-26T07:41:48.173773"
     },
     {
       "username": "mhd",
@@ -102,6 +105,40 @@
         "perfect_levels": 4,
         "wrong_attempts": 0,
         "saved_at": "2025-10-25T14:40:34.620759"
+      }
+    },
+    {
+      "username": "admin1",
+      "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+      "email": "",
+      "created_at": "2025-10-26T08:04:22.991134",
+      "last_login": null,
+      "total_games": 0,
+      "high_score": 0,
+      "is_active": true
+    },
+    {
+      "username": "admin2",
+      "password": "114663ab194edcb3f61d409883ce4ae6c3c2f9854194095a5385011d15becbef",
+      "email": "",
+      "created_at": "2025-10-26T08:11:32.174373",
+      "last_login": "2025-10-26T08:13:51.343688",
+      "total_games": 0,
+      "high_score": 0,
+      "is_active": true,
+      "saved_progress": {
+        "level": 2,
+        "score": 63,
+        "hints_used": 0,
+        "achievements": [
+          "Perfect Solver"
+        ],
+        "streak": 2,
+        "max_streak": 2,
+        "combo_multiplier": 1.5999999999999999,
+        "perfect_levels": 3,
+        "wrong_attempts": 0,
+        "saved_at": "2025-10-26T08:13:05.500618"
       }
     }
   ]
