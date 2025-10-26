@@ -9,20 +9,27 @@ Write-Host ""
 # Check if required packages are installed
 Write-Host "Checking dependencies..." -ForegroundColor Green
 
-$packages = @("streamlit", "pandas", "plotly")
-$missing = @()
+# Install all required packages from requirements file
+if (Test-Path "streamlit_requirements.txt") {
+    Write-Host "Installing packages from streamlit_requirements.txt..." -ForegroundColor Yellow
+    pip install -r streamlit_requirements.txt
+} else {
+    # Fallback to individual package installation
+    $packages = @("streamlit", "pandas", "plotly")
+    $missing = @()
 
-foreach ($package in $packages) {
-    $installed = pip show $package 2>$null
-    if (-not $installed) {
-        $missing += $package
+    foreach ($package in $packages) {
+        $installed = pip show $package 2>$null
+        if (-not $installed) {
+            $missing += $package
+        }
     }
-}
 
-if ($missing.Count -gt 0) {
-    Write-Host "Missing packages: $($missing -join ', ')" -ForegroundColor Red
-    Write-Host "Installing required packages..." -ForegroundColor Yellow
-    pip install $missing
+    if ($missing.Count -gt 0) {
+        Write-Host "Missing packages: $($missing -join ', ')" -ForegroundColor Red
+        Write-Host "Installing required packages..." -ForegroundColor Yellow
+        pip install $missing
+    }
 }
 
 Write-Host "All dependencies installed!" -ForegroundColor Green
@@ -42,10 +49,13 @@ Write-Host ""
 Write-Host "Default Admin Password: admin123" -ForegroundColor Yellow
 Write-Host "Please change this in production!" -ForegroundColor Red
 Write-Host ""
-Write-Host "Dashboard will open at: http://localhost:8502" -ForegroundColor Cyan
+Write-Host "Dashboard will open at: http://localhost:8503" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Press Ctrl+C to stop the dashboard" -ForegroundColor Gray
 Write-Host ""
 
-# Start the dashboard on port 8502 (to avoid conflict with main game)
-streamlit run admin_dashboard.py --server.port 8502
+# Get the full path to the admin dashboard file
+$dashboardPath = Join-Path $PSScriptRoot "admin_dashboard.py"
+
+# Start the dashboard on port 8503 (to avoid conflict with main game and other services)
+streamlit run $dashboardPath --server.port 8503
