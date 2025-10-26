@@ -908,7 +908,9 @@ st.markdown("""
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Load answers from TOML file for security
-answers_data = toml.load("answers.toml")
+# Use absolute path to ensure file is found in all environments
+answers_file_path = os.path.join(os.path.dirname(__file__), "answers.toml")
+answers_data = toml.load(answers_file_path)
 answers = answers_data["questions"]
 
 QUESTIONS: List[Dict] = [
