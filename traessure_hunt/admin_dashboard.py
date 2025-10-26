@@ -8,8 +8,30 @@ import json
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict
-import plotly.express as px
-import plotly.graph_objects as go
+
+# Try to import plotly, but handle the case where it's not available
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    # Create mock objects to prevent crashes
+    class MockFigure:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    class MockPx:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: MockFigure()
+    
+    class MockGo:
+        def __getattr__(self, name):
+            return type(name, (), {'__getattr__': lambda self, name: lambda *args, **kwargs: MockFigure()})()
+    
+    px = MockPx()
+    go = MockGo()
+
 from auth_manager import JSONAuthManager
 import time
 
@@ -418,6 +440,11 @@ def create_users_dataframe() -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════════════════
 def create_level_distribution_chart(df: pd.DataFrame):
     """Create level distribution chart with dark theme"""
+    # Check if plotly is available
+    if not PLOTLY_AVAILABLE:
+        st.warning("📊 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
     level_counts = df['Level'].value_counts().sort_index()
     
     fig = px.bar(
@@ -442,6 +469,11 @@ def create_level_distribution_chart(df: pd.DataFrame):
 
 def create_score_distribution_chart(df: pd.DataFrame):
     """Create score distribution chart with dark theme"""
+    # Check if plotly is available
+    if not PLOTLY_AVAILABLE:
+        st.warning("🎯 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
     fig = px.histogram(
         df,
         x='Score',
@@ -464,6 +496,11 @@ def create_score_distribution_chart(df: pd.DataFrame):
 
 def create_streak_chart(df: pd.DataFrame):
     """Create streak comparison chart with dark theme"""
+    # Check if plotly is available
+    if not PLOTLY_AVAILABLE:
+        st.warning("🔥 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
     top_users = df.nlargest(10, 'Max Streak')[['Username', 'Streak', 'Max Streak']]
     
     fig = go.Figure(data=[
@@ -491,6 +528,11 @@ def create_streak_chart(df: pd.DataFrame):
 
 def create_engagement_chart(df: pd.DataFrame):
     """Create user engagement chart with dark theme"""
+    # Check if plotly is available
+    if not PLOTLY_AVAILABLE:
+        st.warning("🎮 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
     engagement_data = df[['Username', 'Total Games', 'Hints Used']].nlargest(10, 'Total Games')
     
     fig = go.Figure(data=[
@@ -662,12 +704,20 @@ with tab2:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.plotly_chart(create_level_distribution_chart(df), use_container_width=True)
-        st.plotly_chart(create_streak_chart(df), use_container_width=True)
+        level_chart = create_level_distribution_chart(df)
+        if level_chart is not None:
+            st.plotly_chart(level_chart, use_container_width=True)
+        streak_chart = create_streak_chart(df)
+        if streak_chart is not None:
+            st.plotly_chart(streak_chart, use_container_width=True)
     
     with col2:
-        st.plotly_chart(create_score_distribution_chart(df), use_container_width=True)
-        st.plotly_chart(create_engagement_chart(df), use_container_width=True)
+        score_chart = create_score_distribution_chart(df)
+        if score_chart is not None:
+            st.plotly_chart(score_chart, use_container_width=True)
+        engagement_chart = create_engagement_chart(df)
+        if engagement_chart is not None:
+            st.plotly_chart(engagement_chart, use_container_width=True)
 
 # TAB 3: Leaderboard
 with tab3:
