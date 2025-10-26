@@ -1,215 +1,8 @@
 import streamlit as st
 import random
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import time
-import requests
-import json
-import toml
-from auth_manager import JSONAuthManager
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DJANGO API INTEGRATION
-# ═══════════════════════════════════════════════════════════════════════════════
-API_BASE_URL = "http://localhost:8000/api/auth"
-
-# Initialize JSON Auth Manager for offline mode
-json_auth = JSONAuthManager("users.json")
-
-class DjangoAPI:
-    """Helper class for Django backend API integration"""
-    
-    @staticmethod
-    def register_user(username: str, email: str, password: str) -> Tuple[bool, str, Optional[dict]]:
-        """Register a new user in Django database or JSON fallback"""
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/register/",
-                json={
-                    "username": username,
-                    "email": email,
-                    "password": password,
-                    "password_confirm": password
-                },
-                timeout=5
-            )
-            
-            if response.status_code == 201:
-                data = response.json()
-                # Also save to JSON for offline backup
-                json_auth.register_user(username, password, email)
-                return True, "Registration successful!", data
-            else:
-                error_data = response.json()
-                error_msg = error_data.get('errors', {}).get('username', ['Registration failed'])[0]
-                return False, str(error_msg), None
-                
-        except requests.exceptions.ConnectionError:
-            # Fallback to JSON authentication
-            return json_auth.register_user(username, password, email)
-        except Exception as e:
-            # Fallback to JSON authentication
-            return json_auth.register_user(username, password, email)
-    
-    @staticmethod
-    def login_user(username: str, password: str) -> Tuple[bool, str, Optional[dict]]:
-        """Login user via Django backend or JSON fallback"""
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/login/",
-                json={"username": username, "password": password},
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return True, data.get('message', 'Login successful'), data
-            else:
-                return False, "Invalid username or password", None
-                
-        except requests.exceptions.ConnectionError:
-            # Fallback to JSON authentication
-            return json_auth.login_user(username, password)
-        except Exception as e:
-            # Fallback to JSON authentication
-            return json_auth.login_user(username, password)
-    
-    @staticmethod
-    def check_backend_status() -> bool:
-        """Check if Django backend is running"""
-        try:
-            response = requests.get(f"{API_BASE_URL}/achievements/all/", timeout=2)
-            return response.status_code in [200, 401, 403]  # Backend is up
-        except:
-            return False
-    
-    @staticmethod
-    def get_questions() -> Optional[List[Dict]]:
-        """Fetch questions from Django backend"""
-        try:
-            response = requests.get(f"{API_BASE_URL}/questions/", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('questions', [])
-        except:
-            pass
-        return None
-    
-    @staticmethod
-    def save_progress(username: str, level: int, score: int, hints_used: int = 0, 
-                     achievements: list = None, streak: int = 0, max_streak: int = 0,
-                     combo_multiplier: float = 1.0, perfect_levels: int = 0,
-                     wrong_attempts: int = 0) -> bool:
-        """Save user's game progress with all stats to backend or JSON"""
-        try:
-            # Try Django backend first
-            response = requests.post(
-                f"{API_BASE_URL}/game/level/",
-                json={
-                    "username": username,
-                    "level": level,
-                    "score": score,
-                    "hints_used": hints_used,
-                    "achievements": achievements or [],
-                    "streak": streak,
-                    "max_streak": max_streak,
-                    "combo_multiplier": combo_multiplier,
-                    "perfect_levels": perfect_levels,
-                    "wrong_attempts": wrong_attempts
-                },
-                headers={'Authorization': f'Token {st.session_state.auth_token}'} if st.session_state.get('auth_token') else {},
-                timeout=5
-            )
-            return response.status_code == 200
-        except:
-            # Fallback to JSON
-            return json_auth.save_progress(
-                username, level, score, hints_used, achievements,
-                streak, max_streak, combo_multiplier, perfect_levels, wrong_attempts
-            )
-    
-    @staticmethod
-    def mark_game_completed_permanently(username: str) -> bool:
-        """Mark game as completed permanently to prevent replay"""
-        try:
-            # Try Django backend first
-            response = requests.post(
-                f"{API_BASE_URL}/game/mark_completed/",
-                json={
-                    "username": username
-                },
-                timeout=5
-            )
-            return response.status_code == 200
-        except:
-            # Fallback to JSON
-            return json_auth.mark_game_completed_permanently(username)
-    
-    @staticmethod
-    def load_progress(username: str) -> Optional[dict]:
-        """Load user's saved game progress from backend or JSON"""
-        try:
-            # Try Django backend first
-            # Get active session first
-            session_response = requests.get(
-                f"{API_BASE_URL}/game/session/",
-                headers={'Authorization': f'Token {st.session_state.auth_token}'} if st.session_state.get('auth_token') else {},
-                timeout=5
-            )
-            if session_response.status_code == 200:
-                session_data = session_response.json()
-                session_id = session_data.get('session', {}).get('id')
-                if session_id:
-                    # Get progress for this session
-                    response = requests.get(
-                        f"{API_BASE_URL}/game/session/{session_id}/progress/",
-                        headers={'Authorization': f'Token {st.session_state.auth_token}'} if st.session_state.get('auth_token') else {},
-                        timeout=5
-                    )
-                    if response.status_code == 200:
-                        progress_data = response.json().get('progress', [])
-                        if progress_data:
-                            # Find the highest level completed
-                            max_level = max([p.get('level_number', 0) for p in progress_data])
-                            # Return the progress of the highest level
-                            for p in progress_data:
-                                if p.get('level_number') == max_level:
-                                    return p
-        except:
-            pass
-        
-        # Fallback to JSON
-        return json_auth.load_progress(username)
-    
-    @staticmethod
-    def clear_progress(username: str) -> bool:
-        """Clear user's saved game progress"""
-        try:
-            # Try Django backend first
-            # Get active session first
-            session_response = requests.get(
-                f"{API_BASE_URL}/game/session/",
-                headers={'Authorization': f'Token {st.session_state.auth_token}'} if st.session_state.get('auth_token') else {},
-                timeout=5
-            )
-            if session_response.status_code == 200:
-                session_data = session_response.json()
-                session_id = session_data.get('session', {}).get('id')
-                if session_id:
-                    # Clear all level progress for this session
-                    response = requests.delete(
-                        f"{API_BASE_URL}/game/session/{session_id}/progress/clear/",
-                        headers={'Authorization': f'Token {st.session_state.auth_token}'} if st.session_state.get('auth_token') else {},
-                        timeout=5
-                    )
-                    if response.status_code == 200:
-                        return True
-        except:
-            pass
-        
-        # Fallback to JSON
-        return json_auth.clear_progress(username)
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIGURATION
@@ -853,17 +646,12 @@ st.markdown("""
 # ═══════════════════════════════════════════════════════════════════════════════
 # ENHANCED GAME DATA WITH 6 LEVELS
 # ═══════════════════════════════════════════════════════════════════════════════
-
-# Load answers from TOML file for security
-answers_data = toml.load("answers.toml")
-answers = answers_data["questions"]
-
 QUESTIONS: List[Dict] = [
     {
         "question": "🔍 The Hidden Core\n\nI am invisible but control it all,\nCPU, memory, devices—I stand tall.\nWithout me, Linux would never run,\nFind my name, and Level 2 is begun.",
-        "answer": answers["level_1_answer"],
+        "answer": "kernel",
         "security_riddle": "What 3-letter command shows you where you are in the Linux filesystem?",
-        "security_key": answers["level_1_security_key"],
+        "security_key": "pwd",
         "hint": "💡 Think of the 'heart' of the operating system that manages hardware.",
         "security_hint": "💡 Stands for 'Print Working Directory'.",
         "category": "OS Architecture",
@@ -872,9 +660,9 @@ QUESTIONS: List[Dict] = [
     },
     {
         "question": "🔍 The Command Interpreter\n\nI'm not food, but I'm called a shell,\nWithout me, using the kernel is hell.\nI take your commands, one by one,\nBash, Zsh, Fish—I'm the one!",
-        "answer": answers["level_2_answer"],
+        "answer": "shell",
         "security_riddle": "What license ensures software remains free and open source? (3 letters, created by FSF)",
-        "security_key": answers["level_2_security_key"],
+        "security_key": "gpl",
         "hint": "💡 The interface between users and the kernel. Famous types include Bash and Zsh.",
         "security_hint": "💡 GNU _____ License. Richard Stallman's creation.",
         "category": "System Components",
@@ -883,9 +671,9 @@ QUESTIONS: List[Dict] = [
     },
     {
         "question": "🔍 The Ancient Ancestor\n\nBorn at Bell Labs in the 1970s,\nI shaped today's systems and realities.\nLinux is my child, that's true,\nFour letters, can you name me too?",
-        "answer": answers["level_3_answer"],
+        "answer": "unix",
         "security_riddle": "Decode: 01101100 01101001 01101110 01110101 01111000",
-        "security_key": answers["level_3_security_key"],
+        "security_key": "linux",
         "hint": "💡 The operating system that inspired Linux. Starts with 'U'.",
         "security_hint": "💡 Convert binary to ASCII. Each group is 8 bits = 1 character.",
         "category": "OS History",
@@ -894,9 +682,9 @@ QUESTIONS: List[Dict] = [
     },
     {
         "question": "🔍 The Software Manager\n\nI fetch, install, and update with ease,\napt, yum, pacman—examples of me.\nWithout me, your software is stranded,\nWhat's my name, two words demanded?",
-        "answer": answers["level_4_answer"],
+        "answer": "package manager",
         "security_riddle": "What command changes your current directory in Linux? (2 letters)",
-        "security_key": answers["level_4_security_key"],
+        "security_key": "cd",
         "hint": "💡 Two words. First word is 'Package'. Manages software installation.",
         "security_hint": "💡 'Change Directory' - one of the most basic Linux commands.",
         "category": "System Tools",
@@ -905,9 +693,9 @@ QUESTIONS: List[Dict] = [
     },
     {
         "question": "🔍 The Permission Master\n\nI control who can read, write, execute,\nThree groups of three—that's my tribute.\nOwner, group, others—I set the law,\nWhat am I called? Answer with awe.",
-        "answer": answers["level_5_answer"],
+        "answer": "chmod",
         "security_riddle": "What famous OS did Linus Torvalds create? (5 letters)",
-        "security_key": answers["level_5_security_key"],
+        "security_key": "linux",
         "hint": "💡 A Linux command to change file permissions. Starts with 'ch'.",
         "security_hint": "💡 The creator's first name is Linus. OS released in 1991.",
         "category": "File System",
@@ -916,9 +704,9 @@ QUESTIONS: List[Dict] = [
     },
     {
         "question": "🔍 The Final Treasure\n\nI wrote the kernel back in '91,\nFor fun at first, but now it runs everyone.\nA Finnish programmer, still maintaining today,\nWho am I—can you say?",
-        "answer": answers["level_6_answer"],
+        "answer": "linus torvalds",
         "security_riddle": "What 3-letter open source version control system did Linus also create?",
-        "security_key": answers["level_6_security_key"],
+        "security_key": "git",
         "hint": "💡 His first name is Linus. Created Linux as a student project.",
         "security_hint": "💡 Rhymes with 'sit'. Used for tracking code changes.",
         "category": "Linux History",
@@ -926,12 +714,6 @@ QUESTIONS: List[Dict] = [
         "points": 20
     }
 ]
-import random
-import time
-from datetime import datetime
-from typing import Tuple
-
-import streamlit as st
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -942,9 +724,6 @@ def init_session_state():
     defaults = {
         "logged_in": False,
         "username": "",
-        "backend_connected": False,
-        "auth_token": None,
-        "user_id": None,
         "level": 0,
         "score": 0,
         "hints_used": 0,
@@ -963,542 +742,110 @@ def init_session_state():
         "total_time_spent": 0,
         "achievements": [],
         "show_riddle_animation": False,
-        "show_level_animation": False,
-        "game_completed_permanently": False
+        "show_level_animation": False
     }
 
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-    
-    # Check backend status on first load
-    if "backend_checked" not in st.session_state:
-        st.session_state.backend_connected = DjangoAPI.check_backend_status()
-        st.session_state.backend_checked = True
-    
-    # Load questions from API or use fallback
-    if "questions_loaded" not in st.session_state:
-        api_questions = DjangoAPI.get_questions()
-        if api_questions:
-            st.session_state.QUESTIONS = api_questions
-            st.session_state.questions_source = "database"
-        else:
-            st.session_state.QUESTIONS = QUESTIONS  # Fallback to hardcoded
-            st.session_state.questions_source = "fallback"
-        st.session_state.questions_loaded = True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LOGIN SYSTEM - PROFESSIONAL UI/UX
+# LOGIN SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 def render_login_page():
-    """Render the professional-grade futuristic login page with enhanced UX"""
-    
-    # Enhanced Login Page Styling
+    """Render the futuristic login page"""
+    # Login Page Header
     st.markdown('''
+    <div style="text-align: center; margin: 50px 0;">
+        <div style="font-size: 6rem; animation: loginFloat 3s ease-in-out infinite;">🔐</div>
+        <h1 class="hero-title" style="margin-top: 20px;">ACCESS TERMINAL</h1>
+        <p style="font-size: 1.5rem; color: var(--primary-glow); text-shadow: 0 0 20px var(--primary-glow);">
+            Enter your credentials to begin the adventure
+        </p>
+    </div>
     <style>
-        /* Professional Login Container */
-        .login-hero {
-            text-align: center;
-            padding: 60px 20px 40px;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-            border-radius: 20px;
-            margin-bottom: 40px;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .login-hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(0, 255, 255, 0.05), transparent);
-            animation: scanline 8s linear infinite;
-        }
-        
-        @keyframes scanline {
-            0% { transform: translateX(-100%) rotate(45deg); }
-            100% { transform: translateX(100%) rotate(45deg); }
-        }
-        
-        .login-icon {
-            font-size: 7rem;
-            display: inline-block;
-            animation: iconPulse 3s ease-in-out infinite;
-            filter: drop-shadow(0 0 30px rgba(0, 255, 255, 0.6));
-        }
-        
-        @keyframes iconPulse {
-            0%, 100% { 
-                transform: scale(1) rotateY(0deg);
-                filter: drop-shadow(0 0 30px rgba(0, 255, 255, 0.6));
-            }
-            50% { 
-                transform: scale(1.1) rotateY(180deg);
-                filter: drop-shadow(0 0 50px rgba(255, 0, 255, 0.8));
-            }
-        }
-        
-        /* Professional Form Styling */
-        .stTextInput > div > div > input {
-            background: rgba(255, 255, 255, 0.08) !important;
-            border: 2px solid rgba(0, 255, 255, 0.3) !important;
-            border-radius: 12px !important;
-            color: white !important;
-            padding: 16px 20px !important;
-            font-size: 1.05rem !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-        
-        .stTextInput > div > div > input:focus {
-            border-color: var(--primary-glow) !important;
-            box-shadow: 0 0 25px rgba(0, 255, 255, 0.4), 0 4px 20px rgba(0, 0, 0, 0.3) !important;
-            background: rgba(255, 255, 255, 0.12) !important;
-            transform: translateY(-2px);
-        }
-        
-        .stTextInput > div > div > input::placeholder {
-            color: rgba(255, 255, 255, 0.4) !important;
-        }
-        
-        /* Enhanced Button Styling */
-        .stButton > button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            border: none !important;
-            border-radius: 12px !important;
-            padding: 16px 40px !important;
-            font-weight: 700 !important;
-            font-size: 1.15rem !important;
-            text-transform: uppercase !important;
-            letter-spacing: 1.5px !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4) !important;
-            position: relative !important;
-            overflow: hidden !important;
-        }
-        
-        .stButton > button::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-        
-        .stButton > button:hover::before {
-            width: 300px;
-            height: 300px;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-4px) scale(1.02) !important;
-            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.6) !important;
-        }
-        
-        .stButton > button:active {
-            transform: translateY(-2px) scale(0.98) !important;
-        }
-        
-        /* Professional Info Box */
-        .pro-info-box {
-            background: linear-gradient(135deg, rgba(0, 255, 255, 0.08), rgba(255, 0, 255, 0.08));
-            border: 2px solid rgba(0, 255, 255, 0.2);
-            border-radius: 15px;
-            padding: 25px;
-            margin-top: 30px;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .pro-info-box::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transition: left 0.5s;
-        }
-        
-        .pro-info-box:hover::before {
-            left: 100%;
-        }
-        
-        /* Feature List */
-        .feature-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 0;
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 1.05rem;
-            transition: all 0.3s;
-        }
-        
-        .feature-item:hover {
-            padding-left: 10px;
-            color: var(--primary-glow);
-        }
-        
-        .feature-icon {
-            margin-right: 15px;
-            font-size: 1.3rem;
-        }
-        
-        /* Validation Messages */
-        .stAlert {
-            border-radius: 12px !important;
-            padding: 16px 20px !important;
-            animation: slideIn 0.3s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        /* Tab Styling */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 10px;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 10px;
-            padding: 15px 30px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
-        }
-        
-        /* Password Strength Indicator */
-        .strength-meter {
-            height: 4px;
-            border-radius: 2px;
-            margin-top: 8px;
-            transition: all 0.3s;
-        }
-        
-        /* Loading Animation */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        @keyframes loginFloat {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(10deg); }
         }
     </style>
     ''', unsafe_allow_html=True)
     
-    # Professional Hero Section
-    st.markdown('''
-    <div class="login-hero">
-        <div class="login-icon">🔐</div>
-        <h1 style="font-family: 'Orbitron', monospace; font-size: 3.5rem; font-weight: 900; 
-                   margin: 20px 0 10px; background: linear-gradient(135deg, #00ffff, #ff00ff, #00ffff);
-                   background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-                   animation: gradientShift 3s ease infinite;">
-            ACCESS TERMINAL
-        </h1>
-        <p style="font-size: 1.4rem; color: var(--primary-glow); font-weight: 500;
-                  text-shadow: 0 0 20px var(--primary-glow); margin-top: 10px;">
-            🚀 Enter the FOSS Universe
-        </p>
-        <div style="margin-top: 20px; font-size: 0.95rem; color: rgba(255,255,255,0.7);">
-            <span style="margin: 0 15px;">✓ Secure</span>
-            <span style="margin: 0 15px;">✓ Fast</span>
-            <span style="margin: 0 15px;">✓ Progressive</span>
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
-    
-    # Professional Form Container
-    col1, col2, col3 = st.columns([1, 3, 1])
+    # Login Form Container
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # Professional Tabs with Enhanced UX
-        tab1, tab2 = st.tabs(["🔑 Sign In", "✨ Create Account"])
+        st.markdown('''
+        <div class="glass-container" style="padding: 50px; margin: 30px 0;">
+            <h2 style="text-align: center; color: var(--primary-glow); margin-bottom: 30px; font-size: 2rem;">
+                🔑 SECURITY CHECKPOINT
+            </h2>
+        </div>
+        ''', unsafe_allow_html=True)
         
-        # ═══════════════════════════════════════════════════════════
-        # TAB 1: LOGIN - PROFESSIONAL VERSION
-        # ═══════════════════════════════════════════════════════════
-        with tab1:
-            st.markdown('''
-            <div style="padding: 30px 20px 20px; text-align: center;">
-                <h2 style="color: var(--primary-glow); font-size: 2.2rem; font-weight: 700; margin-bottom: 10px;">
-                    Welcome Back, Hunter! 🎯
-                </h2>
-                <p style="color: rgba(255,255,255,0.7); font-size: 1.05rem; margin-bottom: 30px;">
-                    Sign in to continue your FOSS adventure
-                </p>
-            </div>
-            ''', unsafe_allow_html=True)
+        with st.form("login_form", clear_on_submit=False):
+            username = st.text_input(
+                "👤 Username",
+                placeholder="Enter your username",
+                help="Choose any username to identify yourself"
+            )
             
-            with st.form("login_form", clear_on_submit=False):
-                # Username Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--primary-glow);">👤 Username</p>', unsafe_allow_html=True)
-                username = st.text_input(
-                    "Username",
-                    placeholder="Enter your username",
-                    key="login_username",
-                    label_visibility="collapsed"
-                )
-                
-                st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
-                
-                # Password Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--primary-glow);">🔒 Password</p>', unsafe_allow_html=True)
-                password = st.text_input(
-                    "Password",
-                    type="password",
-                    placeholder="Enter your password",
-                    key="login_password",
-                    label_visibility="collapsed"
-                )
-                
-                # Remember Me & Forgot Password (Visual Only)
-                col_remember, col_forgot = st.columns([1, 1])
-                with col_remember:
-                    st.markdown('<p style="font-size: 0.9rem; color: rgba(255,255,255,0.6); margin-top: 10px;">✓ Remember me</p>', unsafe_allow_html=True)
-                with col_forgot:
-                    st.markdown('<p style="font-size: 0.9rem; color: var(--secondary-glow); margin-top: 10px; text-align: right;">🔗 Forgot password?</p>', unsafe_allow_html=True)
-                
-                st.markdown('<div style="height: 25px;"></div>', unsafe_allow_html=True)
-                
-                # Submit Button
+            password = st.text_input(
+                "🔒 Password",
+                type="password",
+                placeholder="Enter password",
+                help="Default password: foss2024"
+            )
+            
+            st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+            
+            col_a, col_b, col_c = st.columns([1, 2, 1])
+            with col_b:
                 submit_button = st.form_submit_button(
                     "🚀 ENTER GAME",
                     use_container_width=True,
                     type="primary"
                 )
-            
-            if submit_button:
-                if username.strip() == "":
-                    st.error("⚠️ Username cannot be empty!")
-                elif not password:
-                    st.error("⚠️ Password cannot be empty!")
-                else:
-                    # Try authentication
-                    with st.spinner("🔄 Authenticating..."):
-                        success, message, data = DjangoAPI.login_user(username.strip(), password)
-                        
-                        if success:
-                            # Login successful
-                            st.session_state.logged_in = True
-                            st.session_state.username = username.strip()
-                            st.session_state.auth_token = data.get('token') if data else None
-                            st.session_state.user_id = data.get('user', {}).get('id') if data else None
-                            st.session_state.start_time = datetime.now()
-                            
-                            # Load saved progress
-                            saved_progress = DjangoAPI.load_progress(username.strip())
-                            if saved_progress:
-                                st.session_state.level = saved_progress.get('level', 0)
-                                st.session_state.score = saved_progress.get('score', 0)
-                                st.session_state.hints_used = saved_progress.get('hints_used', 0)
-                                st.session_state.achievements = saved_progress.get('achievements', [])
-                                st.session_state.streak = saved_progress.get('streak', 0)
-                                st.session_state.max_streak = saved_progress.get('max_streak', 0)
-                                st.session_state.combo_multiplier = saved_progress.get('combo_multiplier', 1.0)
-                                st.session_state.perfect_levels = saved_progress.get('perfect_levels', 0)
-                                st.session_state.wrong_attempts = saved_progress.get('wrong_attempts', 0)
-                                st.info(f"📥 Progress loaded! Level {st.session_state.level + 1} | 🔥 {st.session_state.streak}x streak")
-                            
-                            # Check if game was completed permanently
-                            if saved_progress and saved_progress.get('game_completed_permanently', False):
-                                st.session_state.finished = True
-                                st.session_state.game_completed_permanently = True
-                                st.info("🏆 Game already completed! No replay allowed.")
-                            
-                            st.success(f"✅ {message}")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
-            
-            # Professional Info Box
-            st.markdown('''
-            <div class="pro-info-box">
-                <h4 style="color: var(--primary-glow); margin-bottom: 15px; font-size: 1.1rem;">🎮 Quick Start Guide</h4>
-                <div class="feature-item">
-                    <span class="feature-icon">🔐</span>
-                    <span><strong>Secure Auth:</strong> Django backend + JSON fallback</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">💾</span>
-                    <span><strong>Auto-Save:</strong> Progress saved after each level</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">🏆</span>
-                    <span><strong>Achievements:</strong> Unlock badges as you progress</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">🔥</span>
-                    <span><strong>Streaks:</strong> Build combos for bonus points</span>
-                </div>
-                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(0,255,255,0.2); text-align: center;">
-                    <p style="color: rgba(255,255,255,0.7); font-size: 0.95rem;">
-                        🆕 Don't have an account? Switch to <strong style="color: var(--secondary-glow);">Create Account</strong> tab!
-                    </p>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
         
-        # ═══════════════════════════════════════════════════════════
-        # TAB 2: REGISTRATION - PROFESSIONAL VERSION
-        # ═══════════════════════════════════════════════════════════
-        with tab2:
-            st.markdown('''
-            <div style="padding: 30px 20px 20px; text-align: center;">
-                <h2 style="color: var(--secondary-glow); font-size: 2.2rem; font-weight: 700; margin-bottom: 10px;">
-                    Join the FOSS Universe! 🌟
-                </h2>
-                <p style="color: rgba(255,255,255,0.7); font-size: 1.05rem; margin-bottom: 30px;">
-                    Create your account and start your treasure hunt
-                </p>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-            with st.form("register_form", clear_on_submit=False):
-                # Username Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--secondary-glow);">👤 Username</p>', unsafe_allow_html=True)
-                reg_username = st.text_input(
-                    "Choose Username",
-                    placeholder="Pick a unique username (min 3 characters)",
-                    key="reg_username",
-                    label_visibility="collapsed"
-                )
-                
-                st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
-                
-                # Email Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--secondary-glow);">📧 Email <span style="color: rgba(255,255,255,0.5); font-size: 0.9rem;">(Optional)</span></p>', unsafe_allow_html=True)
-                reg_email = st.text_input(
-                    "Email",
-                    placeholder="your.email@example.com",
-                    key="reg_email",
-                    label_visibility="collapsed"
-                )
-                
-                st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
-                
-                # Password Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--secondary-glow);">🔒 Password</p>', unsafe_allow_html=True)
-                reg_password = st.text_input(
-                    "Password",
-                    type="password",
-                    placeholder="Choose a secure password (min 6 characters)",
-                    key="reg_password",
-                    label_visibility="collapsed"
-                )
-                
-                # Password Strength Indicator (Visual)
-                if 'reg_password' in st.session_state and st.session_state.reg_password:
-                    strength = len(st.session_state.reg_password)
-                    if strength < 6:
-                        st.markdown('<div class="strength-meter" style="background: #ff4444; width: 33%;"></div>', unsafe_allow_html=True)
-                        st.caption("🔴 Weak password")
-                    elif strength < 10:
-                        st.markdown('<div class="strength-meter" style="background: #ffaa00; width: 66%;"></div>', unsafe_allow_html=True)
-                        st.caption("🟡 Medium password")
-                    else:
-                        st.markdown('<div class="strength-meter" style="background: #00ff88; width: 100%;"></div>', unsafe_allow_html=True)
-                        st.caption("🟢 Strong password")
-                
-                st.markdown('<div style="height: 15px;"></div>', unsafe_allow_html=True)
-                
-                # Confirm Password Input
-                st.markdown('<p style="font-weight: 600; margin-bottom: 8px; color: var(--secondary-glow);">🔒 Confirm Password</p>', unsafe_allow_html=True)
-                reg_password_confirm = st.text_input(
-                    "Confirm Password",
-                    type="password",
-                    placeholder="Re-enter your password",
-                    key="reg_password_confirm",
-                    label_visibility="collapsed"
-                )
-                
-                st.markdown('<div style="height: 25px;"></div>', unsafe_allow_html=True)
-                
-                # Submit Button
-                register_button = st.form_submit_button(
-                    "🌟 CREATE ACCOUNT",
-                    use_container_width=True,
-                    type="primary"
-                )
-            
-            if register_button:
-                # Validation
-                if not reg_username.strip():
-                    st.error("⚠️ Username is required!")
-                elif len(reg_username.strip()) < 3:
-                    st.error("⚠️ Username must be at least 3 characters!")
-                elif not reg_password:
-                    st.error("⚠️ Password is required!")
-                elif len(reg_password) < 6:
-                    st.error("⚠️ Password must be at least 6 characters!")
-                elif reg_password != reg_password_confirm:
-                    st.error("⚠️ Passwords do not match!")
-                else:
-                    # Try registration
-                    with st.spinner("🔄 Creating your account..."):
-                        success, message, data = DjangoAPI.register_user(
-                            reg_username.strip(),
-                            reg_email.strip(),
-                            reg_password
-                        )
-                        
-                        if success:
-                            # Registration successful - auto login
-                            st.session_state.logged_in = True
-                            st.session_state.username = reg_username.strip()
-                            st.session_state.auth_token = data.get('token') if data else None
-                            st.session_state.user_id = data.get('user', {}).get('id') if data else None
-                            st.session_state.start_time = datetime.now()
-                            
-                            st.success(f"✅ {message} Welcome, {reg_username}!")
-                            st.info("🎮 Starting your FOSS adventure...")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            # Registration failed
-                            st.error(f"❌ {message}")
-                            st.info("💡 Tip: Try a different username or check your password length")
-            
-            # Registration info
-            st.markdown('''
-            <div style="background: rgba(255, 0, 255, 0.05); border-left: 4px solid var(--secondary-glow); 
-                        padding: 20px; margin-top: 30px; border-radius: 10px;">
-                <h4 style="color: var(--secondary-glow); margin-bottom: 15px;">📋 Registration Info</h4>
-                <p style="line-height: 1.8; color: rgba(255,255,255,0.8);">
-                    ✅ <strong>Username:</strong> Minimum 3 characters<br>
-                    ✅ <strong>Password:</strong> Minimum 6 characters<br>
-                    ✅ <strong>Email:</strong> Optional (for future features)<br><br>
-                    🎯 Create your account to:<br>
-                    • Track your progress and scores<br>
-                    • Compete on the leaderboard<br>
-                    • Earn achievements and badges<br>
-                    • Join the FOSS community!<br>
-                </p>
-            </div>
-            ''', unsafe_allow_html=True)
+        if submit_button:
+            if username.strip() == "":
+                st.error("⚠️ Username cannot be empty!")
+            elif password != "foss2024":
+                st.error("❌ Access Denied! Incorrect password.")
+                st.markdown('''
+                <div style="display:flex; justify-content:center; margin: 20px 0;">
+                    <img src="https://media.tenor.com/DQRSMm8uuq4AAAAi/tamil-hindu.gif" width="200">
+                </div>
+                ''', unsafe_allow_html=True)
+            else:
+                # Successful login
+                st.session_state.logged_in = True
+                st.session_state.username = username.strip()
+                st.session_state.start_time = datetime.now()
+                st.success(f"✅ Welcome, {username}! Initializing treasure hunt...")
+                st.markdown('''
+                <div style="display:flex; justify-content:center; margin: 20px 0;">
+                    <img src="https://media.tenor.com/2OesmlazcyoAAAAi/celebration-celebrate.gif" width="200">
+                </div>
+                ''', unsafe_allow_html=True)
+                time.sleep(1.5)
+                st.rerun()
+        
+        # Login hints
+        st.markdown('''
+        <div style="background: rgba(0, 255, 255, 0.05); border-left: 4px solid var(--primary-glow); 
+                    padding: 20px; margin-top: 30px; border-radius: 10px;">
+            <h4 style="color: var(--primary-glow); margin-bottom: 15px;">💡 Login Information</h4>
+            <p style="line-height: 1.8; color: rgba(255,255,255,0.8);">
+                <strong>Default Password:</strong> <code style="background: rgba(255,255,255,0.1); 
+                padding: 5px 10px; border-radius: 5px; color: var(--success-glow);">foss2024</code><br>
+                <strong>Username:</strong> Enter any name you like!<br><br>
+                🎮 Prepare yourself for the ultimate FOSS challenge!<br>
+                🏆 Complete all levels to become a FOSS Grandmaster!
+            </p>
+        </div>
+        ''', unsafe_allow_html=True)
     
     # Decorative elements
     st.markdown('''
@@ -1512,23 +859,6 @@ def render_login_page():
 # ═══════════════════════════════════════════════════════════════════════════════
 # UTILITY FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
-def auto_save_progress():
-    """Auto-save current game state to backend/JSON"""
-    if st.session_state.get('logged_in') and st.session_state.get('username'):
-        DjangoAPI.save_progress(
-            st.session_state.username,
-            st.session_state.level,
-            st.session_state.score,
-            st.session_state.hints_used,
-            st.session_state.achievements,
-            st.session_state.streak,
-            st.session_state.max_streak,
-            st.session_state.combo_multiplier,
-            st.session_state.perfect_levels,
-            st.session_state.wrong_attempts
-        )
-
-
 def get_rank() -> Tuple[str, str]:
     """Calculate player rank and icon based on comprehensive performance"""
     score = st.session_state.score
@@ -1536,7 +866,7 @@ def get_rank() -> Tuple[str, str]:
     streak = st.session_state.max_streak
     perfect = st.session_state.perfect_levels
 
-    if score >= 95 and hints == 0 and perfect == len(st.session_state.QUESTIONS):
+    if score >= 95 and hints == 0 and perfect == len(QUESTIONS):
         return "🏆 FOSS GRANDMASTER", "Perfect Score! Flawless Victory!"
     elif score >= 85 and hints <= 1:
         return "⭐ LEGENDARY HACKER", "Exceptional Performance!"
@@ -1722,11 +1052,11 @@ def reset_game():
 # ═══════════════════════════════════════════════════════════════════════════════
 def render_progress_tracker():
     """Render enhanced progress tracking system"""
-    progress_pct = (st.session_state.level / len(st.session_state.QUESTIONS)) * 100
+    progress_pct = (st.session_state.level / len(QUESTIONS)) * 100
     current = st.session_state.level
 
     nodes_html = '<div class="node-tracker">'
-    for i in range(len(st.session_state.QUESTIONS)):
+    for i in range(len(QUESTIONS)):
         if i < current:
             nodes_html += f'<div class="node completed">{i + 1}</div>'
         elif i == current:
@@ -1734,7 +1064,7 @@ def render_progress_tracker():
         else:
             nodes_html += f'<div class="node">{i + 1}</div>'
 
-        if i < len(st.session_state.QUESTIONS) - 1:
+        if i < len(QUESTIONS) - 1:
             connector_class = "node-connector active" if i < current else "node-connector"
             nodes_html += f'<div class="{connector_class}"></div>'
 
@@ -1745,7 +1075,7 @@ def render_progress_tracker():
         {nodes_html}
         <div style="text-align: center; margin-top: 20px;">
             <span style="font-size: 1.5rem; color: var(--primary-glow); font-weight: 700;">
-                Progress: {progress_pct:.0f}% • Level {current + 1}/{len(st.session_state.QUESTIONS)}
+                Progress: {progress_pct:.0f}% • Level {current + 1}/{len(QUESTIONS)}
             </span>
         </div>
     </div>
@@ -1762,7 +1092,7 @@ def render_stats_dashboard():
         st.markdown(f"""
         <div class="stat-card">
             <div style="font-size: 2.5rem;">📍</div>
-            <div class="stat-value">{st.session_state.level + 1}/{len(st.session_state.QUESTIONS)}</div>
+            <div class="stat-value">{st.session_state.level + 1}/{len(QUESTIONS)}</div>
             <div class="stat-label">Level</div>
         </div>
         """, unsafe_allow_html=True)
@@ -1825,7 +1155,7 @@ def render_sidebar():
         st.markdown("---")
 
         # Progress Ring
-        progress_pct = (st.session_state.level / len(st.session_state.QUESTIONS)) * 100
+        progress_pct = (st.session_state.level / len(QUESTIONS)) * 100
         st.markdown(f"""
         <div class="progress-ring" style="--progress: {progress_pct}">
             <div class="progress-content">
@@ -1904,40 +1234,6 @@ def render_sidebar():
         if st.button("🔄 Restart Game", use_container_width=True):
             reset_game()
             st.rerun()
-        
-        # Progress Management
-        if st.session_state.level > 0 and not st.session_state.finished:
-            st.markdown("---")
-            st.markdown("### 💾 PROGRESS CONTROL")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("📥 Save", use_container_width=True, help="Progress auto-saves"):
-                    success = DjangoAPI.save_progress(
-                        st.session_state.username,
-                        st.session_state.level,
-                        st.session_state.score,
-                        st.session_state.hints_used,
-                        st.session_state.achievements,
-                        st.session_state.streak,
-                        st.session_state.max_streak,
-                        st.session_state.combo_multiplier,
-                        st.session_state.perfect_levels,
-                        st.session_state.wrong_attempts
-                    )
-                    if success:
-                        st.success("✅ Progress saved!")
-                    else:
-                        st.error("❌ Save failed!")
-            
-            with col2:
-                if st.button("🗑️ Clear", use_container_width=True, help="Delete saved progress"):
-                    if DjangoAPI.clear_progress(st.session_state.username):
-                        st.warning("🛡️ Progress cleared!")
-                        reset_game()
-                        st.rerun()
-            
-            st.caption("💾 Progress auto-saves after each level")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1983,45 +1279,41 @@ else:
     # ═══════════════════════════════════════════════════════════════════════════════
     # GAME LOGIC
     # ═══════════════════════════════════════════════════════════════════════════════
-    # Check if game was completed permanently
-    if st.session_state.get('game_completed_permanently', False):
-        st.info("🏆 This treasure hunt can only be played once. Your achievement has been permanently saved!")
-    else:
-        if not st.session_state.finished:
-            # Display animations if triggered
-            if st.session_state.show_riddle_animation:
-                points = st.session_state.QUESTIONS[st.session_state.level]['points']
-                bonus = calculate_bonus_points(is_riddle=True)
+    if not st.session_state.finished:
+        # Display animations if triggered
+        if st.session_state.show_riddle_animation:
+            points = QUESTIONS[st.session_state.level]['points']
+            bonus = calculate_bonus_points(is_riddle=True)
             
-                st.success(f"✅ **CORRECT!** +{points} points" + (f" (+{bonus} bonus 🎉)" if bonus > 0 else ""))
-                st.info("🔐 **PHASE 2 UNLOCKED:** Crack the security key to proceed!")
+            st.success(f"✅ **CORRECT!** +{points} points" + (f" (+{bonus} bonus 🎉)" if bonus > 0 else ""))
+            st.info("🔐 **PHASE 2 UNLOCKED:** Crack the security key to proceed!")
             
-                # Display animations separately to ensure proper rendering
-                st.markdown(create_question_win_animation(), unsafe_allow_html=True)
-                st.markdown(create_fireworks(), unsafe_allow_html=True)
+            # Display animations separately to ensure proper rendering
+            st.markdown(create_question_win_animation(), unsafe_allow_html=True)
+            st.markdown(create_fireworks(), unsafe_allow_html=True)
             
-                # Clear animation flag and reload
-                st.session_state.show_riddle_animation = False
-                time.sleep(2)
-                st.rerun()
-    
-        if st.session_state.show_level_animation:
-            if st.session_state.finished:
-                # Final victory animation
-                st.success(f"🏆 **ALL LEVELS COMPLETE!** You are a FOSS Master!")
-                st.markdown(create_level_complete_animation(), unsafe_allow_html=True)
-                st.markdown(create_confetti(), unsafe_allow_html=True)
-                st.markdown(create_fireworks(), unsafe_allow_html=True)
-            else:
-                # Level completion animation
-                st.success(f"🔓 **ACCESS GRANTED!** Level {st.session_state.level} unlocked! 🎉")
-                st.markdown(create_level_complete_animation(), unsafe_allow_html=True)
-                st.markdown(create_fireworks(), unsafe_allow_html=True)
-        
             # Clear animation flag and reload
-            st.session_state.show_level_animation = False
+            st.session_state.show_riddle_animation = False
             time.sleep(2)
             st.rerun()
+    
+    if st.session_state.show_level_animation:
+        if st.session_state.finished:
+            # Final victory animation
+            st.success(f"🏆 **ALL LEVELS COMPLETE!** You are a FOSS Master!")
+            st.markdown(create_level_complete_animation(), unsafe_allow_html=True)
+            st.markdown(create_confetti(), unsafe_allow_html=True)
+            st.markdown(create_fireworks(), unsafe_allow_html=True)
+        else:
+            # Level completion animation
+            st.success(f"🔓 **ACCESS GRANTED!** Level {st.session_state.level} unlocked! 🎉")
+            st.markdown(create_level_complete_animation(), unsafe_allow_html=True)
+            st.markdown(create_fireworks(), unsafe_allow_html=True)
+        
+        # Clear animation flag and reload
+        st.session_state.show_level_animation = False
+        time.sleep(2)
+        st.rerun()
     
     render_progress_tracker()
     render_stats_dashboard()
@@ -2041,662 +1333,364 @@ else:
 
     # Show completed levels
     if st.session_state.level > 0:
-        with st.expander(f"✅ Completed Missions ({st.session_state.level}/{len(st.session_state.QUESTIONS)})", expanded=False):
+        with st.expander(f"✅ Completed Missions ({st.session_state.level}/{len(QUESTIONS)})", expanded=False):
             for i in range(st.session_state.level):
-                q = st.session_state.QUESTIONS[i]
+                q = QUESTIONS[i]
                 st.markdown(
                     f'<div class="completed-level">Level {i + 1}: {q["category"]} - '
                     f'{q["difficulty"].upper()} ✓ | 🔐 Unlocked</div>',
                     unsafe_allow_html=True
                 )
 
-    # Only show current question if game is not finished
-    if not st.session_state.finished:
-        # Current Question
-        current_q = st.session_state.QUESTIONS[st.session_state.level]
+    # Current Question
+    current_q = QUESTIONS[st.session_state.level]
 
-        # Phase Banner
-        if not st.session_state.riddle_solved:
-            phase_icon = "🧩"
-            phase_text = "PHASE 1: DECODE THE RIDDLE"
-            phase_color = "var(--primary-glow)"
-        else:
-            phase_icon = "🔐"
-            phase_text = "PHASE 2: CRACK THE SECURITY KEY"
-            phase_color = "var(--danger-glow)"
+    # Phase Banner
+    if not st.session_state.riddle_solved:
+        phase_icon = "🧩"
+        phase_text = "PHASE 1: DECODE THE RIDDLE"
+        phase_color = "var(--primary-glow)"
+    else:
+        phase_icon = "🔐"
+        phase_text = "PHASE 2: CRACK THE SECURITY KEY"
+        phase_color = "var(--danger-glow)"
 
+    st.markdown(f"""
+    <div class="phase-banner">
+        <div class="phase-text" style="color: {phase_color};">
+            {phase_icon} {phase_text}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Question Header
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        badge_class = f"badge-{current_q['difficulty']}"
+        st.markdown(f'<div class="badge {badge_class}">{current_q["difficulty"].upper()}</div>',
+                    unsafe_allow_html=True)
+    with col2:
         st.markdown(f"""
-        <div class="phase-banner">
-            <div class="phase-text" style="color: {phase_color};">
-                {phase_icon} {phase_text}
-            </div>
+        <div style="background: rgba(255,255,255,0.05); padding: 10px 20px; 
+                    border-radius: 20px; display: inline-block;">
+            <span style="color: var(--gold-glow); font-weight: 700;">
+                💰 {current_q['points']} POINTS
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"""
+        <div style="background: rgba(255,255,255,0.05); padding: 10px 20px; 
+                    border-radius: 20px; text-align: center;">
+            <span style="color: var(--primary-glow); font-size: 0.9rem;">
+                📚 {current_q['category']}
+            </span>
         </div>
         """, unsafe_allow_html=True)
 
-        # Question Header
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 1: MAIN RIDDLE
+    # ═══════════════════════════════════════════════════════════════════════════
+    if not st.session_state.riddle_solved:
+        st.markdown(f"""
+        <div class="riddle-container">
+            <pre class="riddle-text">{current_q['question']}</pre>
+        </div>
+        """, unsafe_allow_html=True)
+
+        answer = st.text_input(
+            "🔑 Enter Your Answer:",
+            key=f"ans_{st.session_state.level}_main",
+            placeholder="Type your solution here...",
+            help="Solve the riddle to unlock Phase 2"
+        )
+
         col1, col2, col3 = st.columns([2, 2, 1])
+
         with col1:
-            badge_class = f"badge-{current_q['difficulty']}"
-            st.markdown(f'<div class="badge {badge_class}">{current_q["difficulty"].upper()}</div>',
-                        unsafe_allow_html=True)
+            submit_btn = st.button("⚡ SUBMIT ANSWER", use_container_width=True, type="primary")
+
         with col2:
-            st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 10px 20px; 
-                        border-radius: 20px; display: inline-block;">
-                <span style="color: var(--gold-glow); font-weight: 700;">
-                    💰 {current_q['points']} POINTS
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+            hint_btn = st.button("💡 REQUEST HINT", use_container_width=True)
+
         with col3:
-            st.markdown(f"""
-            <div style="background: rgba(255,255,255,0.05); padding: 10px 20px; 
-                        border-radius: 20px; text-align: center;">
-                <span style="color: var(--primary-glow); font-size: 0.9rem;">
-                    📚 {current_q['category']}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # ═══════════════════════════════════════════════════════════════════════════
-        # PHASE 1: MAIN RIDDLE
-        # ═══════════════════════════════════════════════════════════════════════════
-        if not st.session_state.riddle_solved:
-            st.markdown(f"""
-            <div class="riddle-container">
-                <pre class="riddle-text">{current_q['question']}</pre>
-            </div>
-            """, unsafe_allow_html=True)
-
-            answer = st.text_input(
-                "🔑 Enter Your Answer:",
-                key=f"ans_{st.session_state.level}_main",
-                placeholder="Type your solution here...",
-                help="Solve the riddle to unlock Phase 2"
-            )
-
-            col1, col2, col3 = st.columns([2, 2, 1])
-
-            with col1:
-                submit_btn = st.button("⚡ SUBMIT ANSWER", use_container_width=True, type="primary")
-
-            with col2:
-                hint_btn = st.button("💡 REQUEST HINT", use_container_width=True)
-
-            with col3:
-                if st.session_state.wrong_attempts > 0:
-                    st.markdown(f"""
-                    <div style="text-align: center; color: var(--danger-glow); font-weight: 700;">
-                        ❌ {st.session_state.wrong_attempts}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-            if submit_btn and answer.strip():
-                user_answer = answer.strip().lower()
-                correct_answer = current_q['answer'].lower()
-
-                if user_answer == correct_answer:
-                    # Correct Answer
-                    points = current_q['points']
-                    bonus = calculate_bonus_points(is_riddle=True)
-
-                    st.session_state.score += points + bonus
-                    st.session_state.riddle_solved = True
-                    st.session_state.show_hint = False
-
-                    if st.session_state.wrong_attempts == 0:
-                        st.session_state.perfect_levels += 1
-                        add_achievement("Perfect Solver")
-
-                    st.session_state.wrong_attempts = 0
-                    st.session_state.combo_multiplier = min(3.0, st.session_state.combo_multiplier + 0.2)
-                    
-                    # AUTO-SAVE after solving riddle
-                    auto_save_progress()
-                    
-                    st.session_state.show_riddle_animation = True
-                    st.rerun()
-                else:
-                    # Wrong Answer
-                    st.session_state.wrong_attempts += 1
-                    st.session_state.combo_multiplier = 1.0
-                    st.error(f"❌ Incorrect! Attempt {st.session_state.wrong_attempts}/∞")
-
-                    # Show disappointed GIF on wrong answer
-                    st.markdown(
-                        """
-                        <div style="display:flex; justify-content:center; margin: 10px 0;">
-                            <img src="https://media.tenor.com/ve3YH1XBAyIAAAAi/uarrr-disappointed.gif" width="200">
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-                    if st.session_state.wrong_attempts >= 3:
-                        st.warning("💡 Struggling? Consider using a hint!")
-
-            if st.session_state.show_hint:
+            if st.session_state.wrong_attempts > 0:
                 st.markdown(f"""
-                <div class="hint-container">
-                    <div style="font-size: 1.5rem; margin-bottom: 10px;">💡 HINT</div>
-                    <div style="font-size: 1.1rem;">{current_q['hint']}</div>
+                <div style="text-align: center; color: var(--danger-glow); font-weight: 700;">
+                    ❌ {st.session_state.wrong_attempts}
                 </div>
                 """, unsafe_allow_html=True)
 
-        # ═══════════════════════════════════════════════════════════════════════════
-        # PHASE 2: SECURITY KEY
-        # ═══════════════════════════════════════════════════════════════════════════
-        else:
-            st.success("✅ **RIDDLE SOLVED!** Phase 2 initiated...")
+        if submit_btn and answer.strip():
+            user_answer = answer.strip().lower()
+            correct_answer = current_q['answer'].lower()
 
+            if user_answer == correct_answer:
+                # Correct Answer
+                points = current_q['points']
+                bonus = calculate_bonus_points(is_riddle=True)
+
+                st.session_state.score += points + bonus
+                st.session_state.riddle_solved = True
+                st.session_state.show_hint = False
+
+                if st.session_state.wrong_attempts == 0:
+                    st.session_state.perfect_levels += 1
+                    add_achievement("Perfect Solver")
+
+                st.session_state.wrong_attempts = 0
+                st.session_state.combo_multiplier = min(3.0, st.session_state.combo_multiplier + 0.2)
+                st.session_state.show_riddle_animation = True
+                st.rerun()
+            else:
+                # Wrong Answer
+                st.session_state.wrong_attempts += 1
+                st.session_state.combo_multiplier = 1.0
+                st.error(f"❌ Incorrect! Attempt {st.session_state.wrong_attempts}/∞")
+
+                # Show disappointed GIF on wrong answer
+                st.markdown(
+                    """
+                    <div style="display:flex; justify-content:center; margin: 10px 0;">
+                        <img src="https://media.tenor.com/ve3YH1XBAyIAAAAi/uarrr-disappointed.gif" width="200">
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                if st.session_state.wrong_attempts >= 3:
+                    st.warning("💡 Struggling? Consider using a hint!")
+
+        if hint_btn:
+            if not st.session_state.show_hint:
+                st.session_state.hints_used += 1
+                st.session_state.streak = 0
+                st.session_state.combo_multiplier = 1.0
+                st.info("⚠ Streak and combo reset!")
+            st.session_state.show_hint = True
+
+        if st.session_state.show_hint:
             st.markdown(f"""
-            <div class="security-zone">
-                <h3 class="security-title">🔐 SECURITY CHALLENGE</h3>
-                <p style="font-size: 1.3rem; line-height: 1.8; color: white;">
-                    {current_q['security_riddle']}
-                </p>
+            <div class="hint-container">
+                <div style="font-size: 1.5rem; margin-bottom: 10px;">💡 HINT</div>
+                <div style="font-size: 1.1rem;">{current_q['hint']}</div>
             </div>
             """, unsafe_allow_html=True)
 
-            security_answer = st.text_input(
-                "🔐 Enter Security Key:",
-                key=f"sec_{st.session_state.level}",
-                placeholder="Enter the key to unlock next level...",
-                help="Find the security key to advance"
-            )
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PHASE 2: SECURITY KEY
+    # ═══════════════════════════════════════════════════════════════════════════
+    else:
+        st.success("✅ **RIDDLE SOLVED!** Phase 2 initiated...")
 
-            col1, col2, col3 = st.columns([2, 2, 1])
+        st.markdown(f"""
+        <div class="security-zone">
+            <h3 class="security-title">🔐 SECURITY CHALLENGE</h3>
+            <p style="font-size: 1.3rem; line-height: 1.8; color: white;">
+                {current_q['security_riddle']}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            with col1:
-                security_submit = st.button("🔓 UNLOCK LEVEL", use_container_width=True, type="primary")
+        security_answer = st.text_input(
+            "🔐 Enter Security Key:",
+            key=f"sec_{st.session_state.level}",
+            placeholder="Enter the key to unlock next level...",
+            help="Find the security key to advance"
+        )
 
-            with col2:
-                security_hint_btn = st.button("💡 SECURITY HINT", use_container_width=True)
+        col1, col2, col3 = st.columns([2, 2, 1])
 
-            with col3:
-                if st.session_state.security_wrong_attempts > 0:
-                    st.markdown(f"""
-                    <div style="text-align: center; color: var(--danger-glow); font-weight: 700;">
-                        ❌ {st.session_state.security_wrong_attempts}
-                    </div>
-                    """, unsafe_allow_html=True)
+        with col1:
+            security_submit = st.button("🔓 UNLOCK LEVEL", use_container_width=True, type="primary")
 
-            if security_hint_btn:
-                if not st.session_state.show_security_hint:
-                    st.session_state.hints_used += 1
-                    st.session_state.streak = 0
-                    st.session_state.combo_multiplier = 1.0
-                    st.info("⚠ Streak and combo reset!")
-                    
-                    # AUTO-SAVE after using security hint
-                    auto_save_progress()
-                    
-                st.session_state.show_security_hint = True
+        with col2:
+            security_hint_btn = st.button("💡 SECURITY HINT", use_container_width=True)
 
-            if st.session_state.show_security_hint:
+        with col3:
+            if st.session_state.security_wrong_attempts > 0:
                 st.markdown(f"""
-                <div class="hint-container">
-                    <div style="font-size: 1.5rem; margin-bottom: 10px;">🔐 SECURITY HINT</div>
-                    <div style="font-size: 1.1rem;">{current_q['security_hint']}</div>
+                <div style="text-align: center; color: var(--danger-glow); font-weight: 700;">
+                    ❌ {st.session_state.security_wrong_attempts}
                 </div>
                 """, unsafe_allow_html=True)
 
-            if security_submit and security_answer.strip():
-                user_security = security_answer.strip().lower()
-                correct_security = current_q['security_key'].lower()
+        if security_submit and security_answer.strip():
+            user_security = security_answer.strip().lower()
+            correct_security = current_q['security_key'].lower()
 
-                if user_security == correct_security:
-                    # Correct Security Key
-                    st.session_state.level += 1
-                    st.session_state.riddle_solved = False
-                    st.session_state.show_security_hint = False
-                    st.session_state.streak += 1
-                    st.session_state.max_streak = max(st.session_state.max_streak, st.session_state.streak)
-                    st.session_state.security_wrong_attempts = 0
-                    st.session_state.level_start_time = datetime.now()
+            if user_security == correct_security:
+                # Correct Security Key
+                st.session_state.level += 1
+                st.session_state.riddle_solved = False
+                st.session_state.show_security_hint = False
+                st.session_state.streak += 1
+                st.session_state.max_streak = max(st.session_state.max_streak, st.session_state.streak)
+                st.session_state.security_wrong_attempts = 0
+                st.session_state.level_start_time = datetime.now()
 
-                    # Check if game is finished (all 6 levels completed)
-                    if st.session_state.level >= len(st.session_state.QUESTIONS):
-                        st.session_state.finished = True
-                        # Mark game as completed permanently to prevent replay
-        # Preview Upcoming Levels
-        st.markdown("---")
-        st.markdown("### 🔮 UPCOMING MISSIONS")
+                # Check for achievements
+                if st.session_state.streak >= 5:
+                    add_achievement("Streak Master")
+                if st.session_state.streak >= 6:
+                    add_achievement("Unstoppable")
 
-        remaining = min(3, len(st.session_state.QUESTIONS) - st.session_state.level - 1)
-        if remaining > 0:
-            cols = st.columns(remaining)
-            for i in range(remaining):
-                level_num = st.session_state.level + i + 1
-                next_q = st.session_state.QUESTIONS[level_num]
-                with cols[i]:
-                    st.markdown(f"""
-                    <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 15px;
-                                border: 2px dashed rgba(255,255,255,0.2); text-align: center;">
-                        <div style="font-size: 2rem; margin-bottom: 10px;">🔒</div>
-                        <div style="font-weight: 700; font-size: 1.2rem;">LEVEL {level_num + 1}</div>
-                        <div class="badge badge-{next_q['difficulty']}" style="margin: 10px 0;">
-                            {next_q['difficulty'].upper()}
-                        </div>
-                        <div style="color: rgba(255,255,255,0.6);">{next_q['category']}</div>
-                        <div style="color: var(--gold-glow); margin-top: 10px;">💰 {next_q['points']} pts</div>
+                if st.session_state.level >= len(QUESTIONS):
+                    st.session_state.finished = True
+
+                st.session_state.show_level_animation = True
+                st.rerun()
+            else:
+                # Wrong Security Key
+                st.session_state.security_wrong_attempts += 1
+                st.session_state.streak = 0
+                st.session_state.combo_multiplier = 1.0
+                st.error(f"🔒 **ACCESS DENIED!** Attempt {st.session_state.security_wrong_attempts}/∞")
+
+                if st.session_state.security_wrong_attempts >= 3:
+                    st.warning("💡 Need assistance? Try the security hint!")
+
+        if security_hint_btn:
+            if not st.session_state.show_security_hint:
+                st.session_state.hints_used += 1
+                st.session_state.streak = 0
+                st.session_state.combo_multiplier = 1.0
+                st.info("⚠ Streak and combo reset!")
+            st.session_state.show_security_hint = True
+
+        if st.session_state.show_security_hint:
+            st.markdown(f"""
+            <div class="hint-container">
+                <div style="font-size: 1.5rem; margin-bottom: 10px;">🔐 SECURITY HINT</div>
+                <div style="font-size: 1.1rem;">{current_q['security_hint']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Preview Upcoming Levels
+    st.markdown("---")
+    st.markdown("### 🔮 UPCOMING MISSIONS")
+
+    remaining = min(3, len(QUESTIONS) - st.session_state.level - 1)
+    if remaining > 0:
+        cols = st.columns(remaining)
+        for i in range(remaining):
+            level_num = st.session_state.level + i + 1
+            next_q = QUESTIONS[level_num]
+            with cols[i]:
+                st.markdown(f"""
+                <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 15px;
+                            border: 2px dashed rgba(255,255,255,0.2); text-align: center;">
+                    <div style="font-size: 2rem; margin-bottom: 10px;">🔒</div>
+                    <div style="font-weight: 700; font-size: 1.2rem;">LEVEL {level_num + 1}</div>
+                    <div class="badge badge-{next_q['difficulty']}" style="margin: 10px 0;">
+                        {next_q['difficulty'].upper()}
                     </div>
-                    """, unsafe_allow_html=True)
+                    <div style="color: rgba(255,255,255,0.6);">{next_q['category']}</div>
+                    <div style="color: var(--gold-glow); margin-top: 10px;">💰 {next_q['points']} pts</div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # VICTORY SCREEN
 # ═══════════════════════════════════════════════════════════════════════════════
-if st.session_state.finished:
-    elapsed = (datetime.now() - st.session_state.start_time).total_seconds()
-    rank, subtitle = get_rank()
-
-    # Epic Victory Celebration
-    st.markdown("""
-    <div style="text-align:center; margin: 30px 0;">
-        <h1 style="color: #FFD700; font-size: 5rem; text-shadow: 0 0 30px #FFD700; animation: victoryPulse 1s ease-in-out infinite;">
-            🏆 LEGENDARY VICTORY! 🏆
-        </h1>
-        <div style="font-size: 3rem; margin-top: 20px; animation: celebrateBounce 0.8s ease-in-out infinite;">
-            🎉 ✨ 🎊 ⭐ 🌟 💫 ✨ 🎉
-        </div>
-    </div>
-    <style>
-        @keyframes victoryPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-        }
-        @keyframes celebrateBounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-20px); }
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # Multiple celebration animations
-    st.markdown(create_confetti(), unsafe_allow_html=True)
-    st.markdown(create_fireworks(), unsafe_allow_html=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# UTILITY FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-def auto_save_progress():
-    """Auto-save current game state to backend/JSON"""
-    if st.session_state.get('logged_in') and st.session_state.get('username'):
-        success = DjangoAPI.save_progress(
-            st.session_state.username,
-            st.session_state.level,
-            st.session_state.score,
-            st.session_state.hints_used,
-            st.session_state.achievements,
-            st.session_state.streak,
-            st.session_state.max_streak,
-            st.session_state.combo_multiplier,
-            st.session_state.perfect_levels,
-            st.session_state.wrong_attempts
-        )
-        if success:
-            st.sidebar.success("✅ Progress auto-saved!")
-        else:
-            st.sidebar.error("❌ Auto-save failed!")
-
-        # Preview Upcoming Levels
-        st.markdown("---")
-        st.markdown("### 🔮 UPCOMING MISSIONS")
-
-        remaining = min(3, len(st.session_state.QUESTIONS) - st.session_state.level - 1)
-        if remaining > 0:
-            cols = st.columns(remaining)
-            for i in range(remaining):
-                level_num = st.session_state.level + i + 1
-                next_q = st.session_state.QUESTIONS[level_num]
-                with cols[i]:
-                    st.markdown(f"""
-                    <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 15px;
-                                border: 2px dashed rgba(255,255,255,0.2); text-align: center;">
-                        <div style="font-size: 2rem; margin-bottom: 10px;">🔒</div>
-                        <div style="font-weight: 700; font-size: 1.2rem;">LEVEL {level_num + 1}</div>
-                        <div class="badge badge-{next_q['difficulty']}" style="margin: 10px 0;">
-                            {next_q['difficulty'].upper()}
-                        </div>
-                        <div style="color: rgba(255,255,255,0.6);">{next_q['category']}</div>
-                        <div style="color: var(--gold-glow); margin-top: 10px;">💰 {next_q['points']} pts</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════════════════════════════════════════════
-    # VICTORY SCREEN
-    # ═══════════════════════════════════════════════════════════════════════════════
     if st.session_state.finished:
         elapsed = (datetime.now() - st.session_state.start_time).total_seconds()
         rank, subtitle = get_rank()
 
         # Epic Victory Celebration
         st.markdown("""
-        <div style="text-align:center; margin: 30px 0;">
-            <h1 style="color: #FFD700; font-size: 5rem; text-shadow: 0 0 30px #FFD700; animation: victoryPulse 1s ease-in-out infinite;">
-                🏆 LEGENDARY VICTORY! 🏆
-            </h1>
-            <div style="font-size: 3rem; margin-top: 20px; animation: celebrateBounce 0.8s ease-in-out infinite;">
-                🎉 ✨ 🎊 ⭐ 🌟 💫 ✨ 🎉
+            <div style="text-align:center; margin: 30px 0;">
+                <h1 style="color: #FFD700; font-size: 5rem; text-shadow: 0 0 30px #FFD700; animation: victoryPulse 1s ease-in-out infinite;">
+                    🏆 LEGENDARY VICTORY! 🏆
+                </h1>
+                <div style="font-size: 3rem; margin-top: 20px; animation: celebrateBounce 0.8s ease-in-out infinite;">
+                    🎉 ✨ 🎊 ⭐ 🌟 💫 ✨ 🎉
+                </div>
             </div>
-        </div>
-        <style>
-            @keyframes victoryPulse {
-                0%, 100% { transform: scale(1); }
-                50% { transform: scale(1.1); }
-            }
-            @keyframes celebrateBounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-20px); }
-            }
-        </style>
+            <style>
+                @keyframes victoryPulse {
+                    0%, 100% { transform: scale(1); }
+                    50% { transform: scale(1.1); }
+                }
+                @keyframes celebrateBounce {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-20px); }
+                }
+            </style>
         """, unsafe_allow_html=True)
-    
+        
         # Multiple celebration animations
         st.markdown(create_confetti(), unsafe_allow_html=True)
         st.markdown(create_fireworks(), unsafe_allow_html=True)
-    
-        # PROGRAMMER-THEMED FLOATING CODE SNIPPETS
-        st.markdown("""
-        <div style="position: fixed; top: 15%; left: 8%; font-size: 2rem; animation: floatCode1 4s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px; 
-                    border: 1px solid #00ff00; border-radius: 8px; color: #00ff00; font-family: monospace;">
-            console.log('🎉');
-        </div>
-        <div style="position: fixed; top: 25%; right: 8%; font-size: 2rem; animation: floatCode2 5s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px; 
-                    border: 1px solid #00ffff; border-radius: 8px; color: #00ffff; font-family: monospace;">
-            return 'WIN';
-        </div>
-        <div style="position: fixed; top: 50%; left: 5%; font-size: 2rem; animation: floatCode3 4.5s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px; 
-                    border: 1px solid #ff00ff; border-radius: 8px; color: #ff00ff; font-family: monospace;">
-            git push 🚀
-        </div>
-        <div style="position: fixed; top: 60%; right: 5%; font-size: 2rem; animation: floatCode4 5.5s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none; background: rgba(0,0,0,0.7); padding: 10px; 
-                    border: 1px solid #ffff00; border-radius: 8px; color: #ffff00; font-family: monospace;">
-            def legend():
-        </div>
-        <div style="position: fixed; top: 70%; left: 12%; font-size: 2.5rem; animation: floatLeft 3s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none;">
-            💻
-        </div>
-        <div style="position: fixed; top: 35%; right: 12%; font-size: 2.5rem; animation: floatRight 3.5s ease-in-out infinite; 
-                    z-index: 100; pointer-events: none;">
-            ⚡
-        </div>
-        <div style="position: fixed; top: 80%; left: 50%; font-size: 2.5rem; animation: orbit 6s linear infinite; 
-                    z-index: 100; pointer-events: none;">
-            🔥
-        </div>
-        <style>
-            @keyframes floatCode1 {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.8; }
-                25% { transform: translate(-30px, -30px) rotate(-5deg); opacity: 1; }
-                50% { transform: translate(0, -60px) rotate(0deg); opacity: 0.9; }
-                75% { transform: translate(30px, -30px) rotate(5deg); opacity: 1; }
-            }
-            @keyframes floatCode2 {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.8; }
-                25% { transform: translate(30px, -25px) rotate(5deg); opacity: 1; }
-                50% { transform: translate(0, -50px) rotate(0deg); opacity: 0.9; }
-                75% { transform: translate(-30px, -25px) rotate(-5deg); opacity: 1; }
-            }
-            @keyframes floatCode3 {
-                0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.8; }
-                50% { transform: translate(-20px, -40px) scale(1.1); opacity: 1; }
-            }
-            @keyframes floatCode4 {
-                0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.8; }
-                50% { transform: translate(20px, -40px) scale(1.1); opacity: 1; }
-            }
-            @keyframes floatLeft {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(-25px, -25px) rotate(-15deg); }
-                50% { transform: translate(0, -50px) rotate(0deg); }
-                75% { transform: translate(25px, -25px) rotate(15deg); }
-            }
-            @keyframes floatRight {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(25px, -25px) rotate(15deg); }
-                50% { transform: translate(0, -50px) rotate(0deg); }
-                75% { transform: translate(-25px, -25px) rotate(-15deg); }
-            }
-            @keyframes orbit {
-                0% { transform: translate(-50%, 0) rotate(0deg) translateX(100px) rotate(0deg); }
-                100% { transform: translate(-50%, 0) rotate(360deg) translateX(100px) rotate(-360deg); }
-            }
-        </style>
-        """, unsafe_allow_html=True)
-    
-        # EPIC CODE COMPILATION SUCCESS ANIMATION
-        st.markdown("""
-        <div style="text-align: center; margin: 40px 0;">
-            <div style="background: linear-gradient(135deg, rgba(0,255,0,0.2), rgba(0,255,255,0.2)); 
-                        border: 2px solid #00ff00; border-radius: 15px; padding: 30px; 
-                        display: inline-block; box-shadow: 0 0 40px rgba(0,255,0,0.6);">
-                <div style="font-size: 5rem; animation: compileSuccess 2s ease-in-out;">
-                    ✓
-                </div>
-                <div style="color: #00ff00; font-size: 2rem; font-weight: 900; font-family: monospace; 
-                            text-shadow: 0 0 20px #00ff00; margin-top: 15px;">
-                    BUILD SUCCESSFUL
-                </div>
-                <div style="color: #00ffff; font-size: 1.2rem; margin-top: 10px; font-family: monospace;">
-                    0 errors, 0 warnings, 100% legendary
-                </div>
-            </div>
-        </div>
-        <style>
-            @keyframes compileSuccess {
-                0% { transform: scale(0) rotate(-180deg); opacity: 0; color: #ff0000; }
-                50% { transform: scale(1.3) rotate(0deg); opacity: 1; color: #ffff00; }
-                100% { transform: scale(1) rotate(0deg); opacity: 1; color: #00ff00; }
-            }
-        </style>
-        """, unsafe_allow_html=True)
         
         # Floating celebration elements
         st.markdown("""
-        <div style="position: fixed; top: 20%; left: 10%; font-size: 3rem; animation: floatLeft 3s ease-in-out infinite; z-index: 1000; pointer-events: none;">
-            🎈
-        </div>
-        <div style="position: fixed; top: 25%; right: 10%; font-size: 3rem; animation: floatRight 3s ease-in-out infinite; z-index: 1000; pointer-events: none;">
-            🎈
-        </div>
-        <div style="position: fixed; top: 40%; left: 5%; font-size: 2.5rem; animation: floatLeft 4s ease-in-out infinite 0.5s; z-index: 1000; pointer-events: none;">
-            ⭐
-        </div>
-        <div style="position: fixed; top: 45%; right: 5%; font-size: 2.5rem; animation: floatRight 4s ease-in-out infinite 0.5s; z-index: 1000; pointer-events: none;">
-            ⭐
-        </div>
-        <style>
-            @keyframes floatLeft {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(-20px, -20px) rotate(-10deg); }
-                50% { transform: translate(0, -40px) rotate(0deg); }
-                75% { transform: translate(20px, -20px) rotate(10deg); }
-            }
-            @keyframes floatRight {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                25% { transform: translate(20px, -20px) rotate(10deg); }
-                50% { transform: translate(0, -40px) rotate(0deg); }
-                75% { transform: translate(-20px, -20px) rotate(-10deg); }
-            }
-        </style>
+            <div style="position: fixed; top: 20%; left: 10%; font-size: 3rem; animation: floatLeft 3s ease-in-out infinite; z-index: 1000; pointer-events: none;">
+                🎈
+            </div>
+            <div style="position: fixed; top: 25%; right: 10%; font-size: 3rem; animation: floatRight 3s ease-in-out infinite; z-index: 1000; pointer-events: none;">
+                🎈
+            </div>
+            <div style="position: fixed; top: 40%; left: 5%; font-size: 2.5rem; animation: floatLeft 4s ease-in-out infinite 0.5s; z-index: 1000; pointer-events: none;">
+                ⭐
+            </div>
+            <div style="position: fixed; top: 45%; right: 5%; font-size: 2.5rem; animation: floatRight 4s ease-in-out infinite 0.5s; z-index: 1000; pointer-events: none;">
+                ⭐
+            </div>
+            <style>
+                @keyframes floatLeft {
+                    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+                    25% { transform: translate(-20px, -20px) rotate(-10deg); }
+                    50% { transform: translate(0, -40px) rotate(0deg); }
+                    75% { transform: translate(20px, -20px) rotate(10deg); }
+                }
+                @keyframes floatRight {
+                    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+                    25% { transform: translate(20px, -20px) rotate(10deg); }
+                    50% { transform: translate(0, -40px) rotate(0deg); }
+                    75% { transform: translate(-20px, -20px) rotate(-10deg); }
+                }
+            </style>
         """, unsafe_allow_html=True)
-    
+        
         # Victory sound effect simulation with visual pulse
         st.markdown("""
-        <div style="text-align: center; margin: 40px 0;">
-            <div style="display: inline-block; font-size: 6rem; animation: victoryBurst 1.5s ease-out;">
-                🎆
+            <div style="text-align: center; margin: 40px 0;">
+                <div style="display: inline-block; font-size: 6rem; animation: victoryBurst 1.5s ease-out;">
+                    🎆
+                </div>
             </div>
-        </div>
-        <style>
-            @keyframes victoryBurst {
-                0% { transform: scale(0) rotate(0deg); opacity: 0; }
-                50% { transform: scale(1.5) rotate(180deg); opacity: 1; }
-                100% { transform: scale(1) rotate(360deg); opacity: 1; }
-            }
-        </style>
+            <style>
+                @keyframes victoryBurst {
+                    0% { transform: scale(0) rotate(0deg); opacity: 0; }
+                    50% { transform: scale(1.5) rotate(180deg); opacity: 1; }
+                    100% { transform: scale(1) rotate(360deg); opacity: 1; }
+                }
+            </style>
         """, unsafe_allow_html=True)
 
         st.markdown(f"""
         <div class="victory-container">
-        <h1 class="victory-title">🏆 VICTORY 🏆</h1>
-        <div style="font-size: 4rem; margin: 30px 0; animation: trophyFloat 2s ease-in-out infinite;">
-            🏆 🥇 ⭐ 🥇 🏆
-        </div>
-        <h2 style="font-size: 3rem; color: var(--gold-glow); margin: 20px 0; animation: rankAppear 1s ease-out;">
-            {rank}
-        </h2>
-        <p style="font-size: 1.5rem; color: var(--primary-glow); margin: 20px 0; animation: subtitleGlow 2s ease-in-out infinite;">
-            {subtitle}
-        </p>
-        <div style="margin: 30px 0; font-size: 2.5rem; animation: celebrateSpin 3s linear infinite;">
-            🎊 🎈 🎁 🎇 🎆
-        </div>
-        <p style="font-size: 1.2rem; line-height: 2; margin-top: 30px;">
-            All {len(st.session_state.QUESTIONS)} levels completed!<br>
-            All security keys cracked!<br>
-            🌐 Thank you for celebrating Software Freedom!
-        </p>
-        </div>
-        <style>
-        @keyframes trophyFloat {{
-            0%, 100% {{ transform: translateY(0) rotate(0deg); }}
-            25% {{ transform: translateY(-10px) rotate(5deg); }}
-            75% {{ transform: translateY(-10px) rotate(-5deg); }}
-        }}
-        @keyframes rankAppear {{
-            0% {{ transform: scale(0); opacity: 0; }}
-            50% {{ transform: scale(1.2); }}
-            100% {{ transform: scale(1); opacity: 1; }}
-        }}
-        @keyframes subtitleGlow {{
-            0%, 100% {{ text-shadow: 0 0 10px var(--primary-glow); }}
-            50% {{ text-shadow: 0 0 30px var(--primary-glow), 0 0 50px var(--secondary-glow); }}
-        }}
-        @keyframes celebrateSpin {{
-            0% {{ transform: rotate(0deg); }}
-            100% {{ transform: rotate(360deg); }}
-        }}
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        # Congratulatory message with animation
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2)); 
-                    border: 3px solid var(--gold-glow); border-radius: 25px; padding: 40px; 
-                    text-align: center; margin: 30px 0; animation: messageGlow 2s ease-in-out infinite;">
-            <div style="font-size: 3rem; margin-bottom: 20px;">🎆 🎇 🎉 🎇 🎆</div>
-            <h2 style="color: var(--gold-glow); font-size: 2.5rem; margin-bottom: 15px; font-family: 'Orbitron', monospace;">
-                CONGRATULATIONS, CHAMPION!
+            <h1 class="victory-title">🏆 VICTORY 🏆</h1>
+            <div style="font-size: 4rem; margin: 30px 0; animation: trophyFloat 2s ease-in-out infinite;">
+                🏆 🥇 ⭐ 🥇 🏆
+            </div>
+            <h2 style="font-size: 3rem; color: var(--gold-glow); margin: 20px 0; animation: rankAppear 1s ease-out;">
+                {rank}
             </h2>
-            <p style="font-size: 1.3rem; color: white; line-height: 1.8;">
-                You've conquered all challenges and proven yourself as a true <strong>FOSS Master</strong>!<br>
-                Your dedication to Software Freedom is legendary! 🌟
+            <p style="font-size: 1.5rem; color: var(--primary-glow); margin: 20px 0; animation: subtitleGlow 2s ease-in-out infinite;">
+                {subtitle}
             </p>
-            <div style="font-size: 2.5rem; margin-top: 20px;">🏆 🥇 🥈 🥉 🏆</div>
-        </div>
-        <style>
-            @keyframes messageGlow {
-                0%, 100% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.5); }
-                50% { box-shadow: 0 0 60px rgba(255, 215, 0, 0.8), 0 0 90px rgba(255, 140, 0, 0.6); }
-            }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # PROGRAMMING LANGUAGES BADGES SHOWCASE
-        st.markdown("""
-        <div style="text-align: center; margin: 40px 0;">
-            <div style="background: rgba(0,0,0,0.8); border: 2px solid var(--primary-glow); 
-                        border-radius: 15px; padding: 30px; display: inline-block;">
-                <h3 style="color: var(--gold-glow); font-size: 1.8rem; margin-bottom: 20px;">
-                    💎 LEGENDARY TECH STACK MASTERED 💎
-                </h3>
-                <div style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
-                    <div class="tech-badge" style="animation-delay: 0s;">🐍 Python</div>
-                    <div class="tech-badge" style="animation-delay: 0.1s;">☕ Java</div>
-                    <div class="tech-badge" style="animation-delay: 0.2s;">⚛️ React</div>
-                    <div class="tech-badge" style="animation-delay: 0.3s;">🔥 C++</div>
-                    <div class="tech-badge" style="animation-delay: 0.4s;">🦀 Rust</div>
-                    <div class="tech-badge" style="animation-delay: 0.5s;">🎯 TypeScript</div>
-                    <div class="tech-badge" style="animation-delay: 0.6s;">🐧 Linux</div>
-                    <div class="tech-badge" style="animation-delay: 0.7s;">🐳 Docker</div>
-                </div>
+            <div style="margin: 30px 0; font-size: 2.5rem; animation: celebrateSpin 3s linear infinite;">
+                🎊 🎈 🎁 🎇 🎆
             </div>
+            <p style="font-size: 1.2rem; line-height: 2; margin-top: 30px;">
+                All {len(QUESTIONS)} levels completed!<br>
+                All security keys cracked!<br>
+                🌐 Thank you for celebrating Software Freedom!
+            </p>
         </div>
         <style>
-            .tech-badge {
-                background: linear-gradient(135deg, rgba(0,255,255,0.2), rgba(255,0,255,0.2));
-                border: 2px solid var(--primary-glow);
-                border-radius: 20px;
-                padding: 12px 20px;
-                font-size: 1.1rem;
-                font-weight: 700;
-                color: white;
-                animation: badgeAppear 0.6s ease-out backwards, badgeFloat 3s ease-in-out infinite;
-                box-shadow: 0 0 20px rgba(0,255,255,0.5);
-            }
-            @keyframes badgeAppear {
-                0% { transform: scale(0) rotate(-180deg); opacity: 0; }
-                100% { transform: scale(1) rotate(0deg); opacity: 1; }
-            }
-            @keyframes badgeFloat {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-10px); }
-            }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class="victory-container">
-            <div style="background: linear-gradient(135deg, rgba(0,0,0,0.9), rgba(20,20,20,0.9)); 
-                        border: 3px solid var(--gold-glow); border-radius: 25px; padding: 40px;
-                        box-shadow: 0 0 50px rgba(255,215,0,0.6);">
-                <h1 class="victory-title" style="font-family: 'Courier New', monospace; font-size: 3.5rem;">
-                    🏆 LEGENDARY ACHIEVEMENT 🏆
-                </h1>
-                <div style="background: rgba(0,0,0,0.7); border: 1px solid #00ff00; border-radius: 10px; 
-                            padding: 20px; margin: 20px 0; font-family: monospace; text-align: left;">
-                    <div style="color: #00ff00; font-size: 1rem; margin-bottom: 10px;">$ cat achievement.txt</div>
-                    <div style="color: #00ffff; font-size: 1.1rem;">
-                        &gt; Rank: <span style="color: #FFD700; font-weight: 900; font-size: 2rem;">{rank}</span><br>
-                        &gt; Status: <span style="color: #00ff00;">{subtitle}</span><br>
-                        &gt; Levels Conquered: <span style="color: #ff00ff;">{len(st.session_state.QUESTIONS)}/{len(st.session_state.QUESTIONS)}</span><br>
-                        &gt; Security Keys Cracked: <span style="color: #ffff00;">{len(st.session_state.QUESTIONS)}/{len(st.session_state.QUESTIONS)}</span>
-                    </div>
-                </div>
-                <div style="margin: 30px 0; font-size: 3rem; animation: techSpin 4s linear infinite;">
-                    🚀 ⚡ 💻 🔥 ⭐ 💎 🎯 ✨
-                </div>
-                <div style="background: linear-gradient(90deg, #00ff00, #00ffff, #ff00ff, #ffff00); 
-                            -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
-                            font-size: 1.8rem; font-weight: 900; margin: 20px 0; animation: rainbow 3s linear infinite;">
-                    💯 PERFECT EXECUTION • ZERO BUGS • 100% LEGENDARY 💯
-                </div>
-                <p style="font-size: 1.3rem; line-height: 2; margin-top: 30px; color: var(--primary-glow);">
-                    🌐 All {len(st.session_state.QUESTIONS)} FOSS challenges conquered!<br>
-                    🔐 Every security protocol bypassed with finesse!<br>
-                    🏅 You are now officially a <span style="color: var(--gold-glow); font-weight: 900;">LEGENDARY PROGRAMMER</span>!<br>
-                    💪 Thank you for celebrating Software Freedom!
-                </p>
-            </div>
-        </div>
-        <style>
-            @keyframes techSpin {{
-                0% {{ transform: rotateY(0deg); }}
-                100% {{ transform: rotateY(360deg); }}
-            }}
-            @keyframes rainbow {{
-                0% {{ filter: hue-rotate(0deg); }}
-                100% {{ filter: hue-rotate(360deg); }}
-            }}
             @keyframes trophyFloat {{
                 0%, 100% {{ transform: translateY(0) rotate(0deg); }}
                 25% {{ transform: translateY(-10px) rotate(5deg); }}
@@ -2711,422 +1705,130 @@ def auto_save_progress():
                 0%, 100% {{ text-shadow: 0 0 10px var(--primary-glow); }}
                 50% {{ text-shadow: 0 0 30px var(--primary-glow), 0 0 50px var(--secondary-glow); }}
             }}
+            @keyframes celebrateSpin {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
         </style>
         """, unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # GITHUB COMMIT CELEBRATION
+        # Congratulatory message with animation
         st.markdown("""
-        <div style="background: rgba(0,0,0,0.9); border: 2px solid #00ff00; border-radius: 15px; 
-                    padding: 30px; margin: 30px 0; font-family: 'Courier New', monospace;">
-            <div style="color: #00ff00; font-size: 1.2rem; margin-bottom: 15px;">
-                <span style="animation: blink 1s infinite;">▶</span> git log --oneline --decorate
-            </div>
-            <div style="background: rgba(0,255,0,0.1); padding: 15px; border-radius: 8px; margin: 10px 0;">
-                <div style="color: #ffff00; font-size: 1rem;">
-                    <span style="color: #ff00ff;">commit a1b2c3d</span> 
-                    <span style="color: #00ffff;">(HEAD -> main, origin/main)</span><br>
-                    <span style="color: #00ff00;">Author: {st.session_state.username} &lt;legend@foss.dev&gt;</span><br>
-                    <span style="color: #ffffff;">Date: {datetime.now().strftime('%a %b %d %H:%M:%S %Y')}</span><br><br>
-                    <span style="color: #FFD700; font-weight: 900; font-size: 1.3rem;">
-                        🎉 feat: LEGENDARY VICTORY ACHIEVED 🎉
-                    </span><br><br>
-                    <span style="color: #00ff00;">    ✓ Completed all {len(st.session_state.QUESTIONS)} FOSS challenges</span><br>
-                    <span style="color: #00ff00;">    ✓ Cracked every security protocol</span><br>
-                    <span style="color: #00ff00;">    ✓ Achieved rank: {rank}</span><br>
-                    <span style="color: #00ff00;">    ✓ Total score: {st.session_state.score} points</span><br>
-                    <span style="color: #00ff00;">    ✓ Zero bugs found</span><br><br>
-                    <span style="color: #00ffff;">    +999 legendary points</span><br>
-                    <span style="color: #00ffff;">    +∞ respect from the community</span>
-                </div>
-            </div>
-            <div style="color: #00ff00; font-size: 1rem; margin-top: 15px; animation: blink 1.5s infinite;">
-                $ git push origin legendary<br>
-                <span style="color: #00ffff;">Counting objects: 100% legendary...<br>
-                Writing objects: 100% (∞/∞), done.<br>
-                Total legendary achievement deployed successfully! 🚀</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # STACK OVERFLOW REPUTATION SURGE
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, rgba(244,128,36,0.2), rgba(244,128,36,0.1)); 
-                    border: 3px solid #f48024; border-radius: 20px; padding: 35px; 
-                    text-align: center; margin: 30px 0; animation: soGlow 2s ease-in-out infinite;">
-            <div style="font-size: 3.5rem; margin-bottom: 15px; animation: bounce 2s ease-in-out infinite;">⭐ 📚 💡</div>
-            <div style="background: rgba(244,128,36,0.3); border-radius: 10px; padding: 20px; display: inline-block;">
-                <h2 style="color: #f48024; font-size: 2.5rem; margin-bottom: 10px; font-weight: 900;">
-                    STACK OVERFLOW ACHIEVEMENT
+            <div style="background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2)); 
+                        border: 3px solid var(--gold-glow); border-radius: 25px; padding: 40px; 
+                        text-align: center; margin: 30px 0; animation: messageGlow 2s ease-in-out infinite;">
+                <div style="font-size: 3rem; margin-bottom: 20px;">🎆 🎇 🎉 🎇 🎆</div>
+                <h2 style="color: var(--gold-glow); font-size: 2.5rem; margin-bottom: 15px; font-family: 'Orbitron', monospace;">
+                    CONGRATULATIONS, CHAMPION!
                 </h2>
-                <div style="color: #FFD700; font-size: 2.5rem; font-weight: 900; margin: 15px 0;">
-                    +9,999 REPUTATION
-                </div>
-                <div style="color: white; font-size: 1.2rem;">
-                    🏅 <span style="color: #ffcc00;">Gold Badge:</span> FOSS Master<br>
-                    🥈 <span style="color: #b4b8bb;">Silver Badge:</span> Security Expert<br>
-                    🥉 <span style="color: #d1a684;">Bronze Badge:</span> Quick Learner
-                </div>
+                <p style="font-size: 1.3rem; color: white; line-height: 1.8;">
+                    You've conquered all challenges and proven yourself as a true <strong>FOSS Master</strong>!<br>
+                    Your dedication to Software Freedom is legendary! 🌟
+                </p>
+                <div style="font-size: 2.5rem; margin-top: 20px;">🏆 🥇 🥈 🥉 🏆</div>
             </div>
-            <p style="font-size: 1.4rem; color: white; margin-top: 20px; line-height: 1.8;">
-                You've conquered all challenges and proven yourself as a true <strong style="color: #FFD700;">FOSS LEGEND</strong>!<br>
-                Your dedication to Software Freedom is <span style="color: #00ff00; font-weight: 900;">LEGENDARY</span>! 🌟
-            </p>
-            <div style="font-size: 2.8rem; margin-top: 20px; animation: spin 3s linear infinite;">🏆 👑 💎 🎯 🚀</div>
-        </div>
-        <style>
-            @keyframes soGlow {
-                0%, 100% { box-shadow: 0 0 30px rgba(244,128,36,0.5); }
-                50% { box-shadow: 0 0 60px rgba(244,128,36,0.8), 0 0 90px rgba(255,215,0,0.6); }
-            }
-            @keyframes spin {
-                0% { transform: rotateY(0deg); }
-                100% { transform: rotateY(360deg); }
-            }
-            @keyframes bounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-15px); }
-            }
-        </style>
+            <style>
+                @keyframes messageGlow {
+                    0%, 100% { box-shadow: 0 0 30px rgba(255, 215, 0, 0.5); }
+                    50% { box-shadow: 0 0 60px rgba(255, 215, 0, 0.8), 0 0 90px rgba(255, 140, 0, 0.6); }
+                }
+            </style>
         """, unsafe_allow_html=True)
-    
+        
         # Victory GIF
         st.markdown(
-        """
-        <div style="display:flex; justify-content:center; margin: 30px 0;">
-            <img src="https://media.tenor.com/2OesmlazcyoAAAAi/celebration-celebrate.gif" width="300" style="border-radius: 20px; box-shadow: 0 0 40px rgba(255, 215, 0, 0.6);">
-        </div>
-        """,
-        unsafe_allow_html=True
+            """
+            <div style="display:flex; justify-content:center; margin: 30px 0;">
+                <img src="https://media.tenor.com/2OesmlazcyoAAAAi/celebration-celebrate.gif" width="300" style="border-radius: 20px; box-shadow: 0 0 40px rgba(255, 215, 0, 0.6);">
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-        # PROFESSIONAL METRICS DASHBOARD
-        st.markdown(f"""
-        <div class="metrics-dashboard">
-            <div class="dashboard-header">
-                <h2 class="dashboard-title">📊 Performance Analytics</h2>
-                <div class="dashboard-subtitle">Real-time Achievement Metrics</div>
+        # Final Stats with celebration
+        st.markdown("""
+            <div style="text-align: center; margin: 30px 0;">
+                <h3 style="font-size: 2rem; color: var(--primary-glow); animation: statsPulse 1.5s ease-in-out infinite;">
+                    📊 FINAL STATISTICS 📊
+                </h3>
             </div>
-            <div class="metrics-grid">
-                <div class="metric-card" style="--delay: 0s;">
-                    <div class="metric-icon">⏱️</div>
-                    <div class="metric-value">{format_time(elapsed)}</div>
-                    <div class="metric-label">Completion Time</div>
-                    <div class="metric-code">time.delta()</div>
-                </div>
-                <div class="metric-card" style="--delay: 0.1s;">
-                    <div class="metric-icon">🎯</div>
-                    <div class="metric-value">{st.session_state.score}</div>
-                    <div class="metric-label">Total Score</div>
-                    <div class="metric-code">score.total</div>
-                </div>
-                <div class="metric-card" style="--delay: 0.2s;">
-                    <div class="metric-icon">🔥</div>
-                    <div class="metric-value">{st.session_state.max_streak}x</div>
-                    <div class="metric-label">Max Streak</div>
-                    <div class="metric-code">streak.max</div>
-                </div>
-                <div class="metric-card" style="--delay: 0.3s;">
-                    <div class="metric-icon">⭐</div>
-                    <div class="metric-value">{st.session_state.perfect_levels}/{len(st.session_state.QUESTIONS)}</div>
-                    <div class="metric-label">Perfect Levels</div>
-                    <div class="metric-code">perfect.count</div>
-                </div>
-                <div class="metric-card" style="--delay: 0.4s;">
-                    <div class="metric-icon">💡</div>
-                    <div class="metric-value">{st.session_state.hints_used}</div>
-                    <div class="metric-label">Hints Used</div>
-                    <div class="metric-code">hints.total</div>
-                </div>
-            </div>
-        </div>
-        <style>
-            .metrics-dashboard {{
-                max-width: 1200px;
-                margin: 50px auto;
-                padding: 30px;
-                background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(20, 20, 40, 0.8));
-                border: 1px solid rgba(0, 255, 255, 0.3);
-                border-radius: 16px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-            }}
-            .dashboard-header {{
-                text-align: center;
-                margin-bottom: 40px;
-            }}
-            .dashboard-title {{
-                font-size: 2.2rem;
-                font-weight: 900;
-                color: #00ffff;
-                margin-bottom: 10px;
-                text-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
-            }}
-            .dashboard-subtitle {{
-                font-size: 1rem;
-                color: rgba(255, 255, 255, 0.6);
-                font-family: 'Courier New', monospace;
-            }}
-            .metrics-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 20px;
-            }}
-            .metric-card {{
-                background: linear-gradient(135deg, rgba(0, 255, 255, 0.05), rgba(255, 0, 255, 0.05));
-                border: 2px solid rgba(0, 255, 255, 0.3);
-                border-radius: 12px;
-                padding: 24px;
-                text-align: center;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                animation: slideUp 0.6s ease-out var(--delay) backwards;
-            }}
-            .metric-card:hover {{
-                transform: translateY(-8px);
-                border-color: #00ffff;
-                box-shadow: 0 10px 30px rgba(0, 255, 255, 0.3);
-            }}
-            .metric-icon {{
-                font-size: 2.5rem;
-                margin-bottom: 12px;
-                filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
-            }}
-            .metric-value {{
-                font-size: 2.5rem;
-                font-weight: 900;
-                color: #ffd700;
-                margin: 12px 0;
-                font-family: 'Courier New', monospace;
-                text-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
-            }}
-            .metric-label {{
-                font-size: 0.95rem;
-                color: rgba(255, 255, 255, 0.8);
-                font-weight: 600;
-                margin-bottom: 10px;
-            }}
-            .metric-code {{
-                font-family: 'Courier New', monospace;
-                font-size: 0.8rem;
-                color: #00ff41;
-                opacity: 0.7;
-                margin-top: 8px;
-            }}
-            @keyframes slideUp {{
-                from {{
-                    opacity: 0;
-                    transform: translateY(40px);
-                }}
-                to {{
-                    opacity: 1;
-                    transform: translateY(0);
-                }}
-            }}
-        </style>
+            <style>
+                @keyframes statsPulse {
+                    0%, 100% { transform: scale(1); }
+                    50% { transform: scale(1.05); }
+                }
+            </style>
         """, unsafe_allow_html=True)
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+
+        stats = [
+            (col1, "⏱", format_time(elapsed), "Total Time"),
+            (col2, "🎯", st.session_state.score, "Final Score"),
+            (col3, "💡", st.session_state.hints_used, "Hints Used"),
+            (col4, "🔥", st.session_state.max_streak, "Best Streak"),
+            (col5, "⭐", st.session_state.perfect_levels, "Perfect Levels")
+        ]
+
+        for idx, (col, icon, value, label) in enumerate(stats):
+            with col:
+                delay = idx * 0.15
+                st.markdown(f"""
+                <div class="stat-card" style="animation: statCardAppear {0.6 + delay}s ease-out;">
+                    <div style="font-size: 2.5rem; animation: iconBounce 2s ease-in-out infinite;">{icon}</div>
+                    <div class="stat-value" style="animation: valueCount 1s ease-out {delay}s;">{value}</div>
+                    <div class="stat-label">{label}</div>
+                </div>
+                <style>
+                    @keyframes statCardAppear {{
+                        0% {{ transform: translateY(50px); opacity: 0; }}
+                        100% {{ transform: translateY(0); opacity: 1; }}
+                    }}
+                    @keyframes iconBounce {{
+                        0%, 100% {{ transform: translateY(0); }}
+                        50% {{ transform: translateY(-10px); }}
+                    }}
+                    @keyframes valueCount {{
+                        0% {{ transform: scale(0); opacity: 0; }}
+                        70% {{ transform: scale(1.2); }}
+                        100% {{ transform: scale(1); opacity: 1; }}
+                    }}
+                </style>
+                """, unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # PROFESSIONAL ACHIEVEMENT SYSTEM
-        st.markdown("""
-        <div class="achievements-section">
-            <div class="section-header">
-                <div class="header-icon">🏅</div>
-                <div class="header-content">
-                    <h2 class="section-title">Achievement System</h2>
-                    <p class="section-description">Milestone Badges Unlocked</p>
-                </div>
-            </div>
-        </div>
-        <style>
-            .achievements-section {
-                max-width: 1200px;
-                margin: 60px auto 40px;
-            }
-            .section-header {
-                display: flex;
-                align-items: center;
-                gap: 20px;
-                padding: 30px;
-                background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 140, 0, 0.1));
-                border: 2px solid rgba(255, 215, 0, 0.3);
-                border-radius: 16px;
-                margin-bottom: 30px;
-            }
-            .header-icon {
-                font-size: 4rem;
-                filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.6));
-                animation: iconPulse 2s ease-in-out infinite;
-            }
-            .header-content {
-                flex: 1;
-            }
-            .section-title {
-                font-size: 2.5rem;
-                font-weight: 900;
-                color: #ffd700;
-                margin: 0 0 8px 0;
-                text-shadow: 0 2px 15px rgba(255, 215, 0, 0.5);
-            }
-            .section-description {
-                font-size: 1.1rem;
-                color: rgba(255, 255, 255, 0.7);
-                margin: 0;
-                font-family: 'Courier New', monospace;
-            }
-            @keyframes iconPulse {
-                0%, 100% { transform: scale(1); }
-                50% { transform: scale(1.1); }
-            }
-        </style>
-        """, unsafe_allow_html=True)
+        # Achievement Showcase
+        st.markdown("### 🏆 ACHIEVEMENT SHOWCASE")
 
         base_achievements = [
-        "🎓 FOSS Graduate",
-        "🔐 Security Expert",
-        f"⚡ Speed Runner" if elapsed < 600 else "🐢 Methodical Thinker"
+            "🎓 FOSS Graduate",
+            "🔐 Security Expert",
+            f"⚡ Speed Runner" if elapsed < 600 else "🐢 Methodical Thinker"
         ]
 
         all_achievements = base_achievements + st.session_state.achievements
 
-        # PROFESSIONAL BADGE CARDS
-        achievement_cols = st.columns(min(4, len(all_achievements)))
+        cols = st.columns(min(4, len(all_achievements)))
         for i, achievement in enumerate(all_achievements):
-            with achievement_cols[i % 4]:
-                # Professional color scheme
-                badge_colors = {
-                    0: {'primary': '#00ff41', 'secondary': 'rgba(0, 255, 65, 0.1)', 'name': 'Success'},
-                    1: {'primary': '#00d4ff', 'secondary': 'rgba(0, 212, 255, 0.1)', 'name': 'Info'},
-                    2: {'primary': '#ffd700', 'secondary': 'rgba(255, 215, 0, 0.1)', 'name': 'Gold'},
-                    3: {'primary': '#ff6b6b', 'secondary': 'rgba(255, 107, 107, 0.1)', 'name': 'Accent'}
-                }
-                color_scheme = badge_colors[i % 4]
-                
+            with cols[i % 4]:
+                delay = i * 0.1
                 st.markdown(f"""
-                <div class="badge-card" style="--badge-color: {color_scheme['primary']}; --badge-bg: {color_scheme['secondary']}; animation-delay: {i * 0.1}s;">
-                    <div class="badge-header">
-                        <div class="badge-icon">🏆</div>
-                        <div class="badge-status">
-                            <span class="status-dot"></span>
-                            <span class="status-text">UNLOCKED</span>
-                        </div>
-                    </div>
-                    <div class="badge-content">
-                        <h3 class="badge-title">{achievement}</h3>
-                        <div class="badge-meta">
-                            <span class="meta-item">
-                                <span class="meta-icon">✓</span>
-                                <span class="meta-text">Verified</span>
-                            </span>
-                            <span class="meta-item">
-                                <span class="meta-icon">📊</span>
-                                <span class="meta-text">Elite</span>
-                            </span>
-                        </div>
-                    </div>
-                    <div class="badge-footer">
-                        <code class="badge-code">achievement_{i + 1}.unlock()</code>
-                    </div>
+                <div class="glass-container" style="text-align: center; padding: 20px; animation: achievementPop {0.5 + delay}s ease-out;">
+                    <div style="font-size: 3rem; margin-bottom: 10px; animation: badgeSpin 2s ease-in-out infinite;">🏆</div>
+                    <div style="font-weight: 700; font-size: 1.1rem;">{achievement}</div>
                 </div>
                 <style>
-                    .badge-card {{
-                        background: linear-gradient(135deg, var(--badge-bg), rgba(0, 0, 0, 0.6));
-                        border: 2px solid var(--badge-color);
-                        border-radius: 12px;
-                        padding: 20px;
-                        margin-bottom: 20px;
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                        animation: badgeFadeIn 0.6s ease-out backwards;
-                        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+                    @keyframes achievementPop {{
+                        0% {{ transform: scale(0) rotate(-180deg); opacity: 0; }}
+                        50% {{ transform: scale(1.1) rotate(10deg); }}
+                        100% {{ transform: scale(1) rotate(0deg); opacity: 1; }}
                     }}
-                    .badge-card:hover {{
-                        transform: translateY(-8px) scale(1.02);
-                        box-shadow: 0 12px 30px var(--badge-color);
-                        border-color: var(--badge-color);
-                    }}
-                    .badge-header {{
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-bottom: 16px;
-                    }}
-                    .badge-icon {{
-                        font-size: 2.5rem;
-                        filter: drop-shadow(0 0 10px var(--badge-color));
-                    }}
-                    .badge-status {{
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        background: rgba(0, 0, 0, 0.5);
-                        padding: 6px 12px;
-                        border-radius: 20px;
-                        border: 1px solid var(--badge-color);
-                    }}
-                    .status-dot {{
-                        width: 8px;
-                        height: 8px;
-                        background: var(--badge-color);
-                        border-radius: 50%;
-                        animation: pulse 2s ease-in-out infinite;
-                    }}
-                    .status-text {{
-                        font-size: 0.75rem;
-                        color: var(--badge-color);
-                        font-weight: 700;
-                        font-family: 'Courier New', monospace;
-                    }}
-                    .badge-content {{
-                        margin: 16px 0;
-                    }}
-                    .badge-title {{
-                        font-size: 1.15rem;
-                        font-weight: 900;
-                        color: white;
-                        margin: 0 0 12px 0;
-                        line-height: 1.3;
-                    }}
-                    .badge-meta {{
-                        display: flex;
-                        gap: 12px;
-                    }}
-                    .meta-item {{
-                        display: flex;
-                        align-items: center;
-                        gap: 4px;
-                        font-size: 0.85rem;
-                        color: rgba(255, 255, 255, 0.7);
-                    }}
-                    .meta-icon {{
-                        color: var(--badge-color);
-                    }}
-                    .badge-footer {{
-                        margin-top: 16px;
-                        padding-top: 16px;
-                        border-top: 1px solid rgba(255, 255, 255, 0.1);
-                    }}
-                    .badge-code {{
-                        font-family: 'Courier New', monospace;
-                        font-size: 0.8rem;
-                        color: var(--badge-color);
-                        background: rgba(0, 0, 0, 0.5);
-                        padding: 6px 10px;
-                        border-radius: 6px;
-                        display: block;
-                    }}
-                    @keyframes badgeFadeIn {{
-                        from {{
-                            opacity: 0;
-                            transform: scale(0.8) rotate(-10deg);
-                        }}
-                        to {{
-                            opacity: 1;
-                            transform: scale(1) rotate(0deg);
-                        }}
-                    }}
-                    @keyframes pulse {{
-                        0%, 100% {{ opacity: 1; }}
-                        50% {{ opacity: 0.5; }}
+                    @keyframes badgeSpin {{
+                        0%, 100% {{ transform: rotate(0deg); }}
+                        50% {{ transform: rotate(15deg); }}
                     }}
                 </style>
                 """, unsafe_allow_html=True)
@@ -3138,45 +1840,45 @@ def auto_save_progress():
             st.markdown("### Your Journey Through FOSS:")
             for i, q in enumerate(QUESTIONS, 1):
                 st.markdown(f"""
-            <div class="glass-container" style="padding: 15px; margin: 10px 0;">
-                <strong>Level {i}:</strong> {q['category']} 
-                <span class="badge badge-{q['difficulty']}">{q['difficulty'].upper()}</span><br>
-                🧩 <strong>Answer:</strong> <code>{q['answer']}</code><br>
-                🔐 <strong>Security Key:</strong> <code>{q['security_key']}</code><br>
-                💰 <strong>Points:</strong> {q['points']}
-            </div>
-            """, unsafe_allow_html=True)
+                <div class="glass-container" style="padding: 15px; margin: 10px 0;">
+                    <strong>Level {i}:</strong> {q['category']} 
+                    <span class="badge badge-{q['difficulty']}">{q['difficulty'].upper()}</span><br>
+                    🧩 <strong>Answer:</strong> <code>{q['answer']}</code><br>
+                    🔐 <strong>Security Key:</strong> <code>{q['security_key']}</code><br>
+                    💰 <strong>Points:</strong> {q['points']}
+                </div>
+                """, unsafe_allow_html=True)
 
         st.markdown("---")
 
         # Performance Analysis
         st.markdown("### 📈 PERFORMANCE ANALYSIS")
 
-        accuracy = ((len(st.session_state.QUESTIONS) * 2) / (len(st.session_state.QUESTIONS) * 2 + st.session_state.hints_used)) * 100
+        accuracy = ((len(QUESTIONS) * 2) / (len(QUESTIONS) * 2 + st.session_state.hints_used)) * 100
         speed_score = max(0, 100 - (elapsed / 10))
 
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"""
-        <div class="glass-container">
-            <h4 style="color: var(--primary-glow);">Accuracy Rating</h4>
-            <div style="font-size: 3rem; font-weight: 900; color: var(--success-glow);">
-                {accuracy:.0f}%
+            <div class="glass-container">
+                <h4 style="color: var(--primary-glow);">Accuracy Rating</h4>
+                <div style="font-size: 3rem; font-weight: 900; color: var(--success-glow);">
+                    {accuracy:.0f}%
+                </div>
+                <p>Based on hints used vs questions solved</p>
             </div>
-            <p>Based on hints used vs questions solved</p>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
         with col2:
             st.markdown(f"""
-        <div class="glass-container">
-            <h4 style="color: var(--secondary-glow);">Speed Rating</h4>
-            <div style="font-size: 3rem; font-weight: 900; color: var(--gold-glow);">
-                {speed_score:.0f}%
+            <div class="glass-container">
+                <h4 style="color: var(--secondary-glow);">Speed Rating</h4>
+                <div style="font-size: 3rem; font-weight: 900; color: var(--gold-glow);">
+                    {speed_score:.0f}%
+                </div>
+                <p>Time efficiency score</p>
             </div>
-            <p>Time efficiency score</p>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
         st.markdown("---")
 
@@ -3187,278 +1889,32 @@ def auto_save_progress():
 
         st.markdown(f"""
         <div class="glass-container" style="text-align: center;">
-        <p style="font-size: 1.1rem; line-height: 1.8;">
-            <strong>Your Stats:</strong><br>
-            🎯 Score: {st.session_state.score} points<br>
-            🏆 Rank: {rank}<br>
-            ⏱ Time: {format_time(elapsed)}<br>
-            🔥 Streak: {st.session_state.max_streak}x<br>
-            ⭐ Perfect Levels: {st.session_state.perfect_levels}/{len(st.session_state.QUESTIONS)}
-        </p>
-        <p style="margin-top: 20px; font-size: 1.1rem;">
-            📚 <strong>Learn More About FOSS:</strong><br>
-            <a href='https://digitalfreedoms.org/en/sfd' target='_blank' 
-               style='color: var(--primary-glow); margin: 0 10px;'>Software Freedom Day</a> •
-            <a href='https://www.fsf.org/' target='_blank' 
-               style='color: var(--primary-glow); margin: 0 10px;'>FSF</a> •
-            <a href='https://www.linuxfoundation.org/' target='_blank' 
-               style='color: var(--primary-glow); margin: 0 10px;'>Linux Foundation</a>
-        </p>
+            <p style="font-size: 1.1rem; line-height: 1.8;">
+                <strong>Your Stats:</strong><br>
+                🎯 Score: {st.session_state.score} points<br>
+                🏆 Rank: {rank}<br>
+                ⏱ Time: {format_time(elapsed)}<br>
+                🔥 Streak: {st.session_state.max_streak}x<br>
+                ⭐ Perfect Levels: {st.session_state.perfect_levels}/{len(QUESTIONS)}
+            </p>
+            <p style="margin-top: 20px; font-size: 1.1rem;">
+                📚 <strong>Learn More About FOSS:</strong><br>
+                <a href='https://digitalfreedoms.org/en/sfd' target='_blank' 
+                   style='color: var(--primary-glow); margin: 0 10px;'>Software Freedom Day</a> •
+                <a href='https://www.fsf.org/' target='_blank' 
+                   style='color: var(--primary-glow); margin: 0 10px;'>FSF</a> •
+                <a href='https://www.linuxfoundation.org/' target='_blank' 
+                   style='color: var(--primary-glow); margin: 0 10px;'>Linux Foundation</a>
+            </p>
         </div>
         """)
 
-        # PROFESSIONAL CALL-TO-ACTION
-        st.markdown("""
-        <div class="cta-section">
-            <div class="cta-card">
-                <div class="cta-header">
-                    <div class="cta-icon">🔄</div>
-                    <h3 class="cta-title">Challenge Yourself Again</h3>
-                </div>
-                <p class="cta-description">
-                    Think you can beat your performance? Test your FOSS knowledge once more and aim for perfection.
-                </p>
-                <div class="cta-meta">
-                    <span class="meta-badge">🎯 Current Score: {st.session_state.score}</span>
-                    <span class="meta-badge">⏱️ Time: {format_time(elapsed)}</span>
-                </div>
-            </div>
-        </div>
-        <style>
-            .cta-section {{
-                max-width: 800px;
-                margin: 60px auto;
-            }}
-            .cta-card {{
-                background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(255, 0, 255, 0.1));
-                border: 2px solid rgba(0, 255, 255, 0.4);
-                border-radius: 16px;
-                padding: 40px;
-                text-align: center;
-                transition: all 0.3s ease;
-            }}
-            .cta-card:hover {{
-                transform: translateY(-4px);
-                box-shadow: 0 15px 40px rgba(0, 255, 255, 0.3);
-            }}
-            .cta-header {{
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 16px;
-                margin-bottom: 20px;
-            }}
-            .cta-icon {{
-                font-size: 3rem;
-                filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.8));
-            }}
-            .cta-title {{
-                font-size: 2rem;
-                font-weight: 900;
-                color: #00ffff;
-                margin: 0;
-            }}
-            .cta-description {{
-                font-size: 1.1rem;
-                color: rgba(255, 255, 255, 0.8);
-                line-height: 1.6;
-                margin: 20px 0;
-            }}
-            .cta-meta {{
-                display: flex;
-                gap: 16px;
-                justify-content: center;
-                flex-wrap: wrap;
-                margin-top: 24px;
-            }}
-            .meta-badge {{
-                background: rgba(0, 0, 0, 0.5);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                padding: 8px 16px;
-                border-radius: 20px;
-                font-family: 'Courier New', monospace;
-                font-size: 0.9rem;
-                color: #ffd700;
-            }}
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Show completion message - NO REPLAY ALLOWED
-        st.markdown("""
-        <div style="text-align: center; padding: 40px; background: rgba(255, 215, 0, 0.1); 
-                    border: 2px solid rgba(255, 215, 0, 0.4); border-radius: 16px; margin: 30px 0;">
-            <h2 style="color: #ffd700; font-size: 2rem; margin-bottom: 15px;">🎯 GAME COMPLETED</h2>
-            <p style="font-size: 1.2rem; color: rgba(255,255,255,0.9); line-height: 1.6;">
-                This treasure hunt can only be played <strong>once</strong>.<br>
-                Your achievement has been permanently saved!<br><br>
-                <span style="color: #00ffff;">✨ Thank you for celebrating Software Freedom Day! ✨</span>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # PROFESSIONAL DEVELOPER CREDITS & STATS SUMMARY
-        st.markdown(f"""
-        <div class="dev-credits">
-            <div class="credits-card">
-                <div class="credits-header">
-                    <div class="header-badge">
-                        <span class="badge-icon">👑</span>
-                        <span class="badge-text">ELITE STATUS</span>
-                    </div>
-                </div>
-                <div class="credits-content">
-                    <h2 class="achievement-rank">{rank}</h2>
-                    <p class="achievement-desc">{subtitle}</p>
-                    <div class="stats-summary">
-                        <div class="stat-item">
-                            <span class="stat-label">Total Score</span>
-                            <span class="stat-value">{st.session_state.score} pts</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Completion Time</span>
-                            <span class="stat-value">{format_time(elapsed)}</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Max Streak</span>
-                            <span class="stat-value">{st.session_state.max_streak}x</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Perfect Levels</span>
-                            <span class="stat-value">{st.session_state.perfect_levels}/{len(st.session_state.QUESTIONS)}</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="credits-footer">
-                    <div class="footer-message">
-                        <p class="message-text">
-                            <strong>🌟 Congratulations!</strong> You've mastered all FOSS challenges and earned your place among the elite.
-                        </p>
-                        <p class="message-subtext">
-                            Your commitment to open source excellence is truly exceptional.
-                        </p>
-                    </div>
-                    <div class="footer-code">
-                        <code>// Achievement verified and logged ✓</code>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <style>
-            .dev-credits {{
-                max-width: 900px;
-                margin: 60px auto;
-            }}
-            .credits-card {{
-                background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(30, 30, 60, 0.9));
-                border: 2px solid rgba(255, 215, 0, 0.4);
-                border-radius: 20px;
-                overflow: hidden;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-            }}
-            .credits-header {{
-                background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2));
-                padding: 24px;
-                text-align: center;
-                border-bottom: 2px solid rgba(255, 215, 0, 0.3);
-            }}
-            .header-badge {{
-                display: inline-flex;
-                align-items: center;
-                gap: 10px;
-                background: rgba(255, 215, 0, 0.2);
-                border: 2px solid #ffd700;
-                padding: 12px 24px;
-                border-radius: 30px;
-            }}
-            .badge-icon {{
-                font-size: 1.8rem;
-            }}
-            .badge-text {{
-                font-size: 1.1rem;
-                font-weight: 900;
-                color: #ffd700;
-                font-family: 'Courier New', monospace;
-                letter-spacing: 2px;
-            }}
-            .credits-content {{
-                padding: 40px;
-                text-align: center;
-            }}
-            .achievement-rank {{
-                font-size: 3rem;
-                font-weight: 900;
-                color: #ffd700;
-                margin: 0 0 16px 0;
-                text-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
-            }}
-            .achievement-desc {{
-                font-size: 1.3rem;
-                color: #00ffff;
-                margin: 0 0 40px 0;
-                font-weight: 600;
-            }}
-            .stats-summary {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 24px;
-                margin-top: 30px;
-            }}
-            .stat-item {{
-                background: rgba(0, 255, 255, 0.05);
-                border: 1px solid rgba(0, 255, 255, 0.3);
-                border-radius: 12px;
-                padding: 20px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }}
-            .stat-label {{
-                font-size: 0.85rem;
-                color: rgba(255, 255, 255, 0.6);
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }}
-            .stat-value {{
-                font-size: 1.8rem;
-                font-weight: 900;
-                color: #00ffff;
-                font-family: 'Courier New', monospace;
-            }}
-            .credits-footer {{
-                background: rgba(0, 0, 0, 0.5);
-                padding: 30px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-            }}
-            .footer-message {{
-                text-align: center;
-                margin-bottom: 20px;
-            }}
-            .message-text {{
-                font-size: 1.1rem;
-                color: white;
-                line-height: 1.6;
-                margin: 0 0 12px 0;
-            }}
-            .message-subtext {{
-                font-size: 0.95rem;
-                color: rgba(255, 255, 255, 0.7);
-                margin: 0;
-            }}
-            .footer-code {{
-                text-align: center;
-                margin-top: 20px;
-            }}
-            .footer-code code {{
-                background: rgba(0, 255, 0, 0.1);
-                border: 1px solid rgba(0, 255, 0, 0.3);
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-family: 'Courier New', monospace;
-                font-size: 0.9rem;
-                color: #00ff41;
-            }}
-        </style>
-        """, unsafe_allow_html=True)
+        # Play Again
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔄 PLAY AGAIN", use_container_width=True, type="primary"):
+                reset_game()
+                st.rerun()
 
 # Footer
 st.markdown("---")
