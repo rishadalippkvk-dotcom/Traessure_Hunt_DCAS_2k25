@@ -15,3 +15,7 @@ djangorestframework-simplejwt==5.3.1
 # Utilities
 python-dotenv==1.0.0
 toml==0.10.2
+
+# Data Visualization
+plotly==5.18.0
+pandas==2.1.4
