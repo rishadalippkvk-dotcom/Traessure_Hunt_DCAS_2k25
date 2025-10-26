@@ -1,8 +1,11 @@
 import toml
+import os
 
 # Test that we can load the answers from the TOML file
 try:
-    answers_data = toml.load("answers.toml")
+    # Use absolute path to ensure file is found in all environments
+    answers_file_path = os.path.join(os.path.dirname(__file__), "answers.toml")
+    answers_data = toml.load(answers_file_path)
     answers = answers_data["questions"]
     
     print("Answers loaded successfully from TOML file:")

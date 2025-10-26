@@ -7,6 +7,50 @@ import requests
 import json
 import toml
 from auth_manager import JSONAuthManager
+import os
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENHANCED GAME DATA WITH 6 LEVELS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Load answers from TOML file for security
+# Use absolute path to ensure file is found in all environments
+answers_file_path = os.path.join(os.path.dirname(__file__), "answers.toml")
+answers_data = toml.load(answers_file_path)
+answers = answers_data["questions"]
+
+QUESTIONS: List[Dict] = [
+    {
+        "question": "What is the capital of France?",
+        "options": ["Berlin", "Madrid", "Paris", "Rome"],
+        "answer": "Paris",
+    },
+    {
+        "question": "What is 2 + 2?",
+        "options": ["3", "4", "5", "6"],
+        "answer": "4",
+    },
+    {
+        "question": "What is the largest planet in our solar system?",
+        "options": ["Earth", "Jupiter", "Mars", "Venus"],
+        "answer": "Jupiter",
+    },
+    {
+        "question": "What is the chemical symbol for water?",
+        "options": ["H2O", "CO2", "O2", "N2"],
+        "answer": "H2O",
+    },
+    {
+        "question": "What is the smallest country in the world?",
+        "options": ["Monaco", "Vatican City", "Liechtenstein", "San Marino"],
+        "answer": "Vatican City",
+    },
+    {
+        "question": "What is the tallest mountain in the world?",
+        "options": ["K2", "Everest", "Kangchenjunga", "Lhotse"],
+        "answer": "Everest",
+    },
+]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DJANGO API INTEGRATION
