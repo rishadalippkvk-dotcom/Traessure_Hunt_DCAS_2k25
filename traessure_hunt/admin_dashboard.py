@@ -445,6 +445,11 @@ def create_level_distribution_chart(df: pd.DataFrame):
         st.warning("📊 Chart visualization requires plotly library. Please install plotly to enable charts.")
         return None
     
+    # Check if DataFrame is empty or doesn't have the required column
+    if df.empty or 'Level' not in df.columns:
+        st.warning("📊 No data available for level distribution chart.")
+        return None
+    
     level_counts = df['Level'].value_counts().sort_index()
     
     fig = px.bar(
@@ -474,6 +479,11 @@ def create_score_distribution_chart(df: pd.DataFrame):
         st.warning("🎯 Chart visualization requires plotly library. Please install plotly to enable charts.")
         return None
     
+    # Check if DataFrame is empty or doesn't have the required column
+    if df.empty or 'Score' not in df.columns:
+        st.warning("🎯 No data available for score distribution chart.")
+        return None
+    
     fig = px.histogram(
         df,
         x='Score',
@@ -499,6 +509,12 @@ def create_streak_chart(df: pd.DataFrame):
     # Check if plotly is available
     if not PLOTLY_AVAILABLE:
         st.warning("🔥 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
+    # Check if DataFrame is empty or doesn't have the required columns
+    required_columns = ['Username', 'Streak', 'Max Streak']
+    if df.empty or not all(col in df.columns for col in required_columns):
+        st.warning("🔥 No data available for streak chart.")
         return None
     
     top_users = df.nlargest(10, 'Max Streak')[['Username', 'Streak', 'Max Streak']]
@@ -531,6 +547,12 @@ def create_engagement_chart(df: pd.DataFrame):
     # Check if plotly is available
     if not PLOTLY_AVAILABLE:
         st.warning("🎮 Chart visualization requires plotly library. Please install plotly to enable charts.")
+        return None
+    
+    # Check if DataFrame is empty or doesn't have the required columns
+    required_columns = ['Username', 'Total Games', 'Hints Used']
+    if df.empty or not all(col in df.columns for col in required_columns):
+        st.warning("🎮 No data available for engagement chart.")
         return None
     
     engagement_data = df[['Username', 'Total Games', 'Hints Used']].nlargest(10, 'Total Games')
@@ -727,54 +749,66 @@ with tab3:
     
     with col1:
         st.markdown('<h3 style="color: #667eea; font-size: 1.5rem; margin-bottom: 20px;">🥇 Highest Scores</h3>', unsafe_allow_html=True)
-        top_scores = df.nlargest(5, 'High Score')[['Username', 'High Score']]
-        for idx, row in top_scores.iterrows():
-            rank = top_scores.index.get_loc(idx)
-            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-            colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(102, 126, 234, 0.5)", "rgba(118, 75, 162, 0.5)"]
-            st.markdown(f"""
-            <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
-                <span class="rank-medal">{medals[rank]}</span>
-                <div style="flex: 1;">
-                    <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
-                    <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['High Score']} points</div>
+        # Check if required columns exist
+        if not df.empty and 'High Score' in df.columns and 'Username' in df.columns:
+            top_scores = df.nlargest(5, 'High Score')[['Username', 'High Score']]
+            for idx, row in top_scores.iterrows():
+                rank = top_scores.index.get_loc(idx)
+                medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+                colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(102, 126, 234, 0.5)", "rgba(118, 75, 162, 0.5)"]
+                st.markdown(f"""
+                <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
+                    <span class="rank-medal">{medals[rank]}</span>
+                    <div style="flex: 1;">
+                        <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['High Score']} points</div>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No data available for highest scores leaderboard")
     
     with col2:
         st.markdown('<h3 style="color: #f093fb; font-size: 1.5rem; margin-bottom: 20px;">🔥 Best Streaks</h3>', unsafe_allow_html=True)
-        top_streaks = df.nlargest(5, 'Max Streak')[['Username', 'Max Streak']]
-        for idx, row in top_streaks.iterrows():
-            rank = top_streaks.index.get_loc(idx)
-            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-            colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(240, 147, 251, 0.5)", "rgba(245, 87, 108, 0.5)"]
-            st.markdown(f"""
-            <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
-                <span class="rank-medal">{medals[rank]}</span>
-                <div style="flex: 1;">
-                    <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
-                    <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['Max Streak']}x streak</div>
+        # Check if required columns exist
+        if not df.empty and 'Max Streak' in df.columns and 'Username' in df.columns:
+            top_streaks = df.nlargest(5, 'Max Streak')[['Username', 'Max Streak']]
+            for idx, row in top_streaks.iterrows():
+                rank = top_streaks.index.get_loc(idx)
+                medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+                colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(240, 147, 251, 0.5)", "rgba(245, 87, 108, 0.5)"]
+                st.markdown(f"""
+                <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
+                    <span class="rank-medal">{medals[rank]}</span>
+                    <div style="flex: 1;">
+                        <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['Max Streak']}x streak</div>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No data available for best streaks leaderboard")
     
     with col3:
         st.markdown('<h3 style="color: #43e97b; font-size: 1.5rem; margin-bottom: 20px;">⭐ Most Perfect Levels</h3>', unsafe_allow_html=True)
-        top_perfect = df.nlargest(5, 'Perfect Levels')[['Username', 'Perfect Levels']]
-        for idx, row in top_perfect.iterrows():
-            rank = top_perfect.index.get_loc(idx)
-            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
-            colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(67, 233, 123, 0.5)", "rgba(56, 249, 215, 0.5)"]
-            st.markdown(f"""
-            <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
-                <span class="rank-medal">{medals[rank]}</span>
-                <div style="flex: 1;">
-                    <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
-                    <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['Perfect Levels']} perfect levels</div>
+        # Check if required columns exist
+        if not df.empty and 'Perfect Levels' in df.columns and 'Username' in df.columns:
+            top_perfect = df.nlargest(5, 'Perfect Levels')[['Username', 'Perfect Levels']]
+            for idx, row in top_perfect.iterrows():
+                rank = top_perfect.index.get_loc(idx)
+                medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+                colors = ["#FFD700", "#C0C0C0", "#CD7F32", "rgba(67, 233, 123, 0.5)", "rgba(56, 249, 215, 0.5)"]
+                st.markdown(f"""
+                <div class="leaderboard-item" style="border-left-color: {colors[rank]};">
+                    <span class="rank-medal">{medals[rank]}</span>
+                    <div style="flex: 1;">
+                        <strong style="font-size: 1.1rem; color: white;">{row['Username']}</strong>
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">{row['Perfect Levels']} perfect levels</div>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No data available for perfect levels leaderboard")
 
 # TAB 4: User Details
 with tab4:
