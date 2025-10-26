@@ -1093,42 +1093,336 @@ with tab5:
 with tab6:
     st.markdown('<h2 class="section-header"><span>❓</span> Question Management</h2>', unsafe_allow_html=True)
     
-    # Load questions from database
-    try:
-        import requests
-        response = requests.get("http://localhost:8000/api/auth/questions/", timeout=5)
-        if response.status_code == 200:
-            questions_data = response.json().get('questions', [])
-            if questions_data:
-                questions_df = pd.DataFrame(questions_data)
-                st.dataframe(
-                    questions_df,
-                    use_container_width=True,
-                    height=400,
-                    column_config={
-                        "level_number": st.column_config.NumberColumn("Level", format="%d"),
-                        "category": st.column_config.TextColumn("Category"),
-                        "difficulty": st.column_config.TextColumn("Difficulty"),
-                        "points": st.column_config.NumberColumn("Points", format="%d"),
-                        "question": st.column_config.TextColumn("Question", width="large"),
-                        "answer": st.column_config.TextColumn("Answer"),
-                        "security_riddle": st.column_config.TextColumn("Security Riddle", width="medium"),
-                        "security_key": st.column_config.TextColumn("Security Key")
-                    }
-                )
-                st.info("💡 Questions are stored in the database and can only be edited by administrators.")
-            else:
-                st.info("📭 No questions found in the database.")
+    # Admin authentication for API access
+    if st.session_state.get("admin_authenticated", False):
+        # Show login form for Django admin API access
+        st.markdown("### 🔐 Django Admin API Access")
+        st.info("Enter Django superuser credentials to manage questions")
+        
+        if "django_token" not in st.session_state:
+            st.session_state.django_token = None
+            
+        with st.form("django_admin_login_questions"):
+            django_username = st.text_input("👤 Django Username", placeholder="Enter Django superuser username")
+            django_password = st.text_input("🔑 Django Password", type="password", placeholder="Enter Django superuser password")
+            submit_django_login = st.form_submit_button("🔓 Authenticate with Django")
+            
+            if submit_django_login:
+                if django_username and django_password:
+                    # Try to authenticate with Django backend
+                    try:
+                        import requests
+                        login_data = {
+                            "username": django_username,
+                            "password": django_password
+                        }
+                        response = requests.post("http://localhost:8000/api/auth/login/", json=login_data, timeout=5)
+                        
+                        if response.status_code == 200:
+                            login_result = response.json()
+                            if login_result.get("success"):
+                                st.session_state.django_token = login_result.get("token")
+                                st.success("✅ Django authentication successful!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Django authentication failed: " + login_result.get("message", "Unknown error"))
+                        else:
+                            st.error(f"❌ Django authentication failed with status code: {response.status_code}")
+                    except Exception as e:
+                        st.error(f"❌ Error during Django authentication: {str(e)}")
+                else:
+                    st.warning("⚠️ Please enter both username and password")
+        
+        # If we have a token, show the question management interface
+        if st.session_state.django_token:
+            st.success("✅ Authenticated with Django backend")
+            st.markdown("---")
+            
+            # Create tabs for different question management operations
+            question_tabs = st.tabs(["📋 View Questions", "➕ Add Question", "✏️ Edit Question", "🗑️ Delete Question"])
+            
+            # Tab 1: View Questions
+            with question_tabs[0]:
+                st.markdown("### 📋 All Questions")
+                
+                # Load questions from database
+                try:
+                    import requests
+                    response = requests.get("http://localhost:8000/api/auth/questions/", timeout=5)
+                    if response.status_code == 200:
+                        questions_data = response.json().get('questions', [])
+                        if questions_data:
+                            questions_df = pd.DataFrame(questions_data)
+                            st.dataframe(
+                                questions_df,
+                                use_container_width=True,
+                                height=400,
+                                column_config={
+                                    "level_number": st.column_config.NumberColumn("Level", format="%d"),
+                                    "category": st.column_config.TextColumn("Category"),
+                                    "difficulty": st.column_config.TextColumn("Difficulty"),
+                                    "points": st.column_config.NumberColumn("Points", format="%d"),
+                                    "question": st.column_config.TextColumn("Question", width="large"),
+                                    "answer": st.column_config.TextColumn("Answer"),
+                                    "security_riddle": st.column_config.TextColumn("Security Riddle", width="medium"),
+                                    "security_key": st.column_config.TextColumn("Security Key")
+                                }
+                            )
+                        else:
+                            st.info("📭 No questions found in the database.")
+                    else:
+                        st.error("❌ Failed to load questions from database.")
+                except Exception as e:
+                    st.error(f"❌ Error loading questions: {str(e)}")
+            
+            # Tab 2: Add Question
+            with question_tabs[1]:
+                st.markdown("### ➕ Add New Question")
+                
+                with st.form("add_question_form"):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        level_number = st.number_input("Level Number", min_value=0, step=1)
+                        category = st.text_input("Category")
+                        difficulty = st.selectbox("Difficulty", ["easy", "medium", "hard"])
+                        points = st.number_input("Points", min_value=1, value=10)
+                        is_active = st.checkbox("Active", value=True)
+                    
+                    with col2:
+                        question_text = st.text_area("Question Text", height=100)
+                        answer = st.text_input("Answer")
+                        hint = st.text_area("Hint", height=60)
+                    
+                    st.markdown("### 🔐 Security Challenge")
+                    security_riddle = st.text_area("Security Riddle", height=80)
+                    security_key = st.text_input("Security Key")
+                    security_hint = st.text_area("Security Hint", height=60)
+                    
+                    submit_add = st.form_submit_button("➕ Add Question")
+                    
+                    if submit_add:
+                        # Validate required fields
+                        if question_text and answer and security_riddle and security_key:
+                            # Prepare question data
+                            question_data = {
+                                "level_number": level_number,
+                                "question": question_text,
+                                "answer": answer,
+                                "security_riddle": security_riddle,
+                                "security_key": security_key,
+                                "hint": hint,
+                                "security_hint": security_hint,
+                                "category": category,
+                                "difficulty": difficulty,
+                                "points": points,
+                                "is_active": is_active
+                            }
+                            
+                            # Send request to create question
+                            try:
+                                import requests
+                                headers = {
+                                    "Authorization": f"Token {st.session_state.django_token}",
+                                    "Content-Type": "application/json"
+                                }
+                                response = requests.post(
+                                    "http://localhost:8000/api/auth/questions/create/",
+                                    json=question_data,
+                                    headers=headers,
+                                    timeout=10
+                                )
+                                
+                                if response.status_code == 201:
+                                    result = response.json()
+                                    if result.get("success"):
+                                        st.success("✅ Question added successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to add question: " + result.get("message", "Unknown error"))
+                                else:
+                                    st.error(f"❌ Failed to add question. Status code: {response.status_code}")
+                                    try:
+                                        error_data = response.json()
+                                        if "errors" in error_data:
+                                            for field, errors in error_data["errors"].items():
+                                                st.error(f"{field}: {', '.join(errors)}")
+                                    except:
+                                        st.error("Response: " + response.text[:200])
+                            except Exception as e:
+                                st.error(f"❌ Error adding question: {str(e)}")
+                        else:
+                            st.warning("⚠️ Please fill in all required fields (Question Text, Answer, Security Riddle, Security Key)")
+            
+            # Tab 3: Edit Question
+            with question_tabs[2]:
+                st.markdown("### ✏️ Edit Question")
+                
+                # First, get list of existing questions
+                try:
+                    import requests
+                    response = requests.get("http://localhost:8000/api/auth/questions/", timeout=5)
+                    if response.status_code == 200:
+                        questions_data = response.json().get('questions', [])
+                        if questions_data:
+                            # Create a select box with question levels
+                            question_levels = [q['level_number'] for q in questions_data]
+                            selected_level = st.selectbox("Select Question to Edit", question_levels)
+                            
+                            # Find the selected question
+                            selected_question = next((q for q in questions_data if q['level_number'] == selected_level), None)
+                            
+                            if selected_question:
+                                st.markdown(f"#### Editing Level {selected_level}")
+                                
+                                with st.form("edit_question_form"):
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        category = st.text_input("Category", value=selected_question.get('category', ''))
+                                        difficulty = st.selectbox("Difficulty", ["easy", "medium", "hard"], 
+                                                                index=["easy", "medium", "hard"].index(selected_question.get('difficulty', 'medium')))
+                                        points = st.number_input("Points", min_value=1, value=selected_question.get('points', 10))
+                                        is_active = st.checkbox("Active", value=selected_question.get('is_active', True))
+                                    
+                                    with col2:
+                                        question_text = st.text_area("Question Text", value=selected_question.get('question', ''), height=100)
+                                        answer = st.text_input("Answer", value=selected_question.get('answer', ''))
+                                        hint = st.text_area("Hint", value=selected_question.get('hint', ''), height=60)
+                                    
+                                    st.markdown("### 🔐 Security Challenge")
+                                    security_riddle = st.text_area("Security Riddle", value=selected_question.get('security_riddle', ''), height=80)
+                                    security_key = st.text_input("Security Key", value=selected_question.get('security_key', ''))
+                                    security_hint = st.text_area("Security Hint", value=selected_question.get('security_hint', ''), height=60)
+                                    
+                                    submit_edit = st.form_submit_button("💾 Save Changes")
+                                    
+                                    if submit_edit:
+                                        # Validate required fields
+                                        if question_text and answer and security_riddle and security_key:
+                                            # Prepare question data
+                                            question_data = {
+                                                "question": question_text,
+                                                "answer": answer,
+                                                "security_riddle": security_riddle,
+                                                "security_key": security_key,
+                                                "hint": hint,
+                                                "security_hint": security_hint,
+                                                "category": category,
+                                                "difficulty": difficulty,
+                                                "points": points,
+                                                "is_active": is_active
+                                            }
+                                            
+                                            # Send request to update question
+                                            try:
+                                                import requests
+                                                headers = {
+                                                    "Authorization": f"Token {st.session_state.django_token}",
+                                                    "Content-Type": "application/json"
+                                                }
+                                                response = requests.put(
+                                                    f"http://localhost:8000/api/auth/questions/{selected_level}/update/",
+                                                    json=question_data,
+                                                    headers=headers,
+                                                    timeout=10
+                                                )
+                                                
+                                                if response.status_code == 200:
+                                                    result = response.json()
+                                                    if result.get("success"):
+                                                        st.success("✅ Question updated successfully!")
+                                                        st.rerun()
+                                                    else:
+                                                        st.error("❌ Failed to update question: " + result.get("message", "Unknown error"))
+                                                else:
+                                                    st.error(f"❌ Failed to update question. Status code: {response.status_code}")
+                                                    try:
+                                                        error_data = response.json()
+                                                        if "errors" in error_data:
+                                                            for field, errors in error_data["errors"].items():
+                                                                st.error(f"{field}: {', '.join(errors)}")
+                                                    except:
+                                                        st.error("Response: " + response.text[:200])
+                                            except Exception as e:
+                                                st.error(f"❌ Error updating question: {str(e)}")
+                                        else:
+                                            st.warning("⚠️ Please fill in all required fields (Question Text, Answer, Security Riddle, Security Key)")
+                        else:
+                            st.info("📭 No questions found in the database.")
+                    else:
+                        st.error("❌ Failed to load questions from database.")
+                except Exception as e:
+                    st.error(f"❌ Error loading questions: {str(e)}")
+            
+            # Tab 4: Delete Question
+            with question_tabs[3]:
+                st.markdown("### 🗑️ Delete Question")
+                
+                # Get list of existing questions
+                try:
+                    import requests
+                    response = requests.get("http://localhost:8000/api/auth/questions/", timeout=5)
+                    if response.status_code == 200:
+                        questions_data = response.json().get('questions', [])
+                        if questions_data:
+                            # Create a select box with question levels
+                            question_levels = [q['level_number'] for q in questions_data]
+                            selected_level_delete = st.selectbox("Select Question to Delete", question_levels)
+                            
+                            # Find the selected question
+                            selected_question = next((q for q in questions_data if q['level_number'] == selected_level_delete), None)
+                            
+                            if selected_question:
+                                st.markdown(f"#### Question Details (Level {selected_level_delete})")
+                                st.info(f"**Category:** {selected_question.get('category', '')}")
+                                st.info(f"**Difficulty:** {selected_question.get('difficulty', '')}")
+                                st.info(f"**Points:** {selected_question.get('points', 0)}")
+                                st.warning(f"**Question:** {selected_question.get('question', '')}")
+                                
+                                # Confirmation checkbox
+                                confirm_delete = st.checkbox("⚠️ I confirm that I want to delete this question")
+                                
+                                if st.button("🗑️ Delete Question", disabled=not confirm_delete):
+                                    # Send request to delete question
+                                    try:
+                                        import requests
+                                        headers = {
+                                            "Authorization": f"Token {st.session_state.django_token}"
+                                        }
+                                        response = requests.delete(
+                                            f"http://localhost:8000/api/auth/questions/{selected_level_delete}/delete/",
+                                            headers=headers,
+                                            timeout=10
+                                        )
+                                        
+                                        if response.status_code == 200:
+                                            result = response.json()
+                                            if result.get("success"):
+                                                st.success("✅ Question deleted successfully!")
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ Failed to delete question: " + result.get("message", "Unknown error"))
+                                        else:
+                                            st.error(f"❌ Failed to delete question. Status code: {response.status_code}")
+                                    except Exception as e:
+                                        st.error(f"❌ Error deleting question: {str(e)}")
+                        else:
+                            st.info("📭 No questions found in the database.")
+                    else:
+                        st.error("❌ Failed to load questions from database.")
+                except Exception as e:
+                    st.error(f"❌ Error loading questions: {str(e)}")
         else:
-            st.error("❌ Failed to load questions from database.")
-    except Exception as e:
-        st.error(f"❌ Error loading questions: {str(e)}")
+            st.info("🔒 Please authenticate with Django admin credentials to manage questions")
+    else:
+        st.warning("⚠️ Please login to the admin dashboard first")
     
     st.markdown("""
     <div class="info-card">
         <h4 style="color: #667eea; margin-top: 0;">🔒 Admin-Only Access</h4>
         <p style="margin-bottom: 0; line-height: 1.6;">
-            Questions are stored permanently in the database and can only be edited by administrators through the Django admin interface.
+            Questions are stored permanently in the database and can only be managed by administrators with proper credentials.
             This ensures game integrity and prevents unauthorized modifications.
         </p>
     </div>

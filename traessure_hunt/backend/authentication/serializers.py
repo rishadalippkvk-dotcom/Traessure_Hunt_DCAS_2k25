@@ -117,12 +117,24 @@ class LeaderboardSerializer(serializers.ModelSerializer):
 
 
 class QuestionSerializer(serializers.ModelSerializer):
-    """Serializer for Question model - read-only for players"""
+    """Serializer for Question model - read-only for players, editable for admins"""
     class Meta:
         model = Question
         fields = ['level_number', 'question', 'answer', 'security_riddle', 
                   'security_key', 'hint', 'security_hint', 'category', 
-                  'difficulty', 'points']
-        read_only_fields = ['level_number', 'question', 'answer', 'security_riddle',
-                           'security_key', 'hint', 'security_hint', 'category',
-                           'difficulty', 'points']
+                  'difficulty', 'points', 'is_active']
+        
+    def __init__(self, *args, **kwargs):
+        # Check if this is for an update operation
+        self.is_update = kwargs.pop('is_update', False)
+        
+        # Make fields read-only for non-admin users
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and not request.user.is_staff:
+            # For non-admin users, make all fields read-only
+            for field_name in self.fields:
+                self.fields[field_name].read_only = True
+        elif self.is_update:
+            # For update operations, level_number should be read-only
+            self.fields['level_number'].read_only = True

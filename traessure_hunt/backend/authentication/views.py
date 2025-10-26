@@ -483,6 +483,101 @@ def get_question_by_level(request, level_number):
         }, status=status.HTTP_404_NOT_FOUND)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_question(request):
+    """
+    Create a new question (admin only)
+    POST /api/auth/questions/create/
+    """
+    # Check if user is admin
+    if not request.user.is_staff:
+        return Response({
+            'success': False,
+            'message': 'Admin access required'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    serializer = QuestionSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            'success': True,
+            'message': 'Question created successfully',
+            'question': serializer.data
+        }, status=status.HTTP_201_CREATED)
+    
+    return Response({
+        'success': False,
+        'errors': serializer.errors
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def update_question(request, level_number):
+    """
+    Update a question by level number (admin only)
+    PUT /api/auth/questions/<level_number>/update/
+    """
+    # Check if user is admin
+    if not request.user.is_staff:
+        return Response({
+            'success': False,
+            'message': 'Admin access required'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        question = Question.objects.get(level_number=level_number)
+        # Pass is_update=True to the serializer
+        serializer = QuestionSerializer(question, data=request.data, partial=False, context={'request': request, 'is_update': True})
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'success': True,
+                'message': 'Question updated successfully',
+                'question': serializer.data
+            })
+        
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Question.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': f'Question for level {level_number} not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_question(request, level_number):
+    """
+    Delete a question by level number (admin only)
+    DELETE /api/auth/questions/<level_number>/delete/
+    """
+    # Check if user is admin
+    if not request.user.is_staff:
+        return Response({
+            'success': False,
+            'message': 'Admin access required'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        question = Question.objects.get(level_number=level_number)
+        question.delete()
+        return Response({
+            'success': True,
+            'message': f'Question for level {level_number} deleted successfully'
+        })
+    except Question.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': f'Question for level {level_number} not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GAME COMPLETION ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════

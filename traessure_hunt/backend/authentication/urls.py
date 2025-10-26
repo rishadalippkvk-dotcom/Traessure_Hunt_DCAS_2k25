@@ -33,6 +33,9 @@ urlpatterns = [
     # Questions
     path('questions/', views.get_all_questions, name='all_questions'),
     path('questions/<int:level_number>/', views.get_question_by_level, name='question_by_level'),
+    path('questions/create/', views.create_question, name='create_question'),
+    path('questions/<int:level_number>/update/', views.update_question, name='update_question'),
+    path('questions/<int:level_number>/delete/', views.delete_question, name='delete_question'),
     
     # Game Completion
     path('game/mark_completed/', views.mark_game_completed_permanently, name='mark_game_completed'),
